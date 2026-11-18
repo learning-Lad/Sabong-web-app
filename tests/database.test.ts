@@ -49,6 +49,34 @@ test("PostgreSQL migration, tenant isolation, validation, concurrency and inacti
     insert into public.app_breeding(id,"sireId","damId","matingDate","eggsCount","hatchedCount") values('PAIR','A','B','2021-01-01',6,4);
     insert into public.app_birds(id,name,breed,bloodline,sex,color,"hatchDate",status,"sireId","damId","breedingId") values('C','Chick','Chicken','A/B','Male','Grey','2021-02-01','Active','A','B','PAIR');
     insert into public.app_supplies(id,name,category,quantity,unit,"reorderLevel") values('FEED','Feed','Feed',10,'kg',3);`);
+  await db.exec("reset role");
+  await db.exec(await readFile(
+    new URL("../supabase/migrations/202611180002_poultry_flocks.sql", import.meta.url), "utf8",
+  ));
+  await identity(userA, sessionA);
+  await t.test("flock migration preserves existing bird values and isolates farm membership", async () => {
+    const before = await one(`select breed,bloodline,"flockId" from public.app_birds where id='A'`);
+    assert.deepEqual(before, { breed: "Chicken", bloodline: "A", flockId: null });
+    await db.exec(`insert into public.app_flocks(id,name) values('F1','Backyard')`);
+    await assert.rejects(
+      db.exec(`insert into public.app_flocks(id,name) values('DUP','backyard')`),
+      /app_flocks_unique_name/,
+    );
+    await db.exec(`update public.app_birds set "flockId"='F1',bloodline='' where id='A'`);
+    assert.deepEqual(
+      await one(`select bloodline,"flockId" from public.app_birds where id='A'`),
+      { bloodline: "", flockId: "F1" },
+    );
+    await identity(userB, sessionB);
+    await db.exec("select public.app_start_session();");
+    assert.equal((await one("select count(*)::int as n from public.app_flocks")).n, 0);
+    await assert.rejects(
+      db.exec(`insert into public.app_birds(id,name,breed,sex,color,"hatchDate",status,"flockId")
+        values('FOREIGN','Test','Unknown','Male','White','2022-01-01','Active','F1')`),
+      /app_birds_flock_fkey/,
+    );
+    await identity(userA, sessionA);
+  });
   await t.test(
     "farm B cannot read/write farm A records or photos",
     async () => {

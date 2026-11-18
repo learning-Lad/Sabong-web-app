@@ -27,6 +27,7 @@ async function mockCloud(page: Page) {
   const rows: Record<string, any[]> = {
     birds: [],
     pens: [],
+    flocks: [],
     breeding: [],
     health: [],
     reminders: [],
@@ -163,7 +164,7 @@ async function createBird(page: Page, name = "Test bird") {
     .getByRole("button", { name: "Register bird", exact: true })
     .click();
   await page.getByLabel("Bird name").fill(name);
-  await page.getByLabel("Bloodline").selectOption("Kelso");
+  await page.getByRole("combobox", { name: "Breed *", exact: true }).selectOption("Mixed / Crossbreed");
   await page.getByLabel("Color / markings").fill("White");
   await page.getByLabel("Hatch date").fill("2025-01-01");
   await page.getByRole("button", { name: "Save bird", exact: true }).click();
@@ -186,6 +187,7 @@ test("cloud bird records persist on reload; edit, unassign pen and validation wo
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await createBird(page);
   expect(backend.rows.birds).toHaveLength(1);
+  expect(backend.rows.birds[0]).toMatchObject({ breed: "Mixed / Crossbreed", bloodline: "", flockId: null });
   await page.getByRole("button", { name: "Edit profile" }).click();
   await page.getByRole("button", { name: "Add a new pen" }).click();
   await page.getByLabel("Pen name").fill("New pen");
@@ -211,6 +213,42 @@ test("cloud bird records persist on reload; edit, unassign pen and validation wo
   expect(backend.rows.birds[0].penId).toBe(null);
   expect(errors).toEqual([]);
 });
+test("flocks and custom breed records survive reload and filter the dashboard and directory", async ({ page }) => {
+  const { rows } = await mockCloud(page);
+  rows.birds.push({
+    id: "LEGACY", name: "Legacy bird", breed: "Gamefowl", bloodline: "Sweater × Kelso",
+    sex: "Male", color: "Brown", hatchDate: "2024-01-01", status: "Active", weight: 1,
+    version: 1,
+  });
+  await login(page);
+  await nav(page, "Bird directory");
+  await page.getByRole("button", { name: "Add flock", exact: true }).click();
+  await page.getByLabel("Flock name").fill("Backyard");
+  await page.getByRole("button", { name: "Save flock" }).click();
+  await expect(page.getByLabel("Filter by flock")).toHaveValue(/^F-/);
+  await expect(page.getByRole("heading", { name: "Legacy bird" })).toHaveCount(0);
+  await page.getByLabel("Filter by flock").selectOption({ label: "Unassigned birds" });
+  await page.getByRole("button", { name: /Legacy bird/ }).click();
+  await page.getByRole("button", { name: "Edit profile" }).click();
+  await expect(page.getByRole("textbox", { name: "Custom breed *", exact: true })).toHaveValue("Gamefowl");
+  await expect(page.getByLabel("Strain or bloodline")).toHaveValue("Sweater × Kelso");
+  await page.getByRole("combobox", { name: "Flock (optional)", exact: true }).selectOption({ label: "Backyard" });
+  await page.getByRole("button", { name: "Save bird", exact: true }).click();
+  await expect(page.getByText("Backyard", { exact: true })).toBeVisible();
+  expect(rows.birds[0]).toMatchObject({ breed: "Gamefowl", bloodline: "Sweater × Kelso", flockId: rows.flocks[0].id });
+  await page.reload();
+  await expect(page.getByText("Cloud connected")).toBeVisible();
+  await page.getByLabel("Filter by flock").selectOption({ label: "Backyard" });
+  await expect(page.getByRole("button", { name: /Legacy bird/ })).toBeVisible();
+  await page.getByRole("button", { name: /View all/ }).click();
+  await expect(page.getByLabel("Filter by flock")).toHaveValue(rows.flocks[0].id);
+  await page.getByRole("button", { name: "Rename flock" }).click();
+  await page.getByLabel("Flock name").fill("Home flock");
+  await page.getByRole("button", { name: "Save flock" }).click();
+  await expect(page.getByRole("button", { name: /Legacy bird.*Home flock/ })).toBeVisible();
+  expect(rows.flocks[0].name).toBe("Home flock");
+});
+
 test("care stock deductions, reminders, reports and AI failure keep manual records available", async ({
   page,
 }) => {

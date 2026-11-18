@@ -4,6 +4,26 @@ Source baseline: `nimrodcaraca-rgb/Sabong`, `master` commit `27a5d76`.
 Requirements: supplied `SRS_Group11.pdf`, version 1.00 (10 pages).
 Scope: web app. Mobile code is unchanged. Web-only packaging review: November 18, 2026.
 
+## Current poultry tracker revision
+
+The target users are independent chicken keepers and small poultry farms. Each
+account manages one farm and may create multiple named flocks. A bird can belong
+to one flock independently of its housing pen. The dashboard bird list and
+directory can filter by flock. Dashboard totals, reminders, and inventory are
+farm-wide.
+
+Bird registration supports a starter list, custom breed labels, mixed or
+crossbred birds, and unknown ancestry. Strain or bloodline is optional, and
+parent links represent recorded ancestry. The upgrade preserves existing
+breed and strain values and leaves existing birds unassigned to a flock.
+The bird profile and bird report show flock membership.
+
+Use this section to update the original SRS with the group. The requirements
+for farm care, housing, lineage, and record security remain relevant. Replace
+event and match requirements in the revised SRS with flock creation, naming,
+bird assignment, and filtering. The historical coverage table below records
+the original comparison.
+
 ## What already worked
 
 The original `web-app/README.md` described an in-memory UI demo, which source

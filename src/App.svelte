@@ -31,11 +31,12 @@
   import { uploadPhoto, removePhoto } from "./lib/repository";
   import { validateBird, validDate, numberError } from "./lib/validation";
   import type { Bird as BirdRecord, ModalKind, Page } from "./lib/types";
-  import { BLOODLINES, age, makeId, today } from "./lib/utils";
+  import { BREEDS, CUSTOM_BREED, age, makeId, today } from "./lib/utils";
   let signedIn = $derived(store.demo || !!auth.user);
   let farmName = $derived(store.farmName);
   let page = $state<Page>("dashboard"),
     selectedBirdId = $state("");
+  let flockFilter = $state("");
   let modalKind = $state<ModalKind | null>(null),
     draft = $state<Record<string, string>>({}),
     errors = $state<Record<string, string>>({});
@@ -56,6 +57,7 @@
   $effect(() => {
     if (!signedIn) {
       page = "dashboard";
+      flockFilter = "";
       closeModal();
     }
   });
@@ -76,7 +78,6 @@
     health: "Care & schedule",
     supplies: "Supply tracker",
     assistant: "Care assistant",
-    matches: "Unavailable",
     reports: "Reports",
     more: "More tools",
   };
@@ -115,13 +116,16 @@
       description: "Create another housing location.",
       action: "Add pen",
     },
-    match: { title: "Unavailable", description: "", action: "" },
+    flock: {
+      title: "Add flock",
+      description: "Group birds for easier browsing in the dashboard and directory.",
+      action: "Save flock",
+    },
   };
   let pendingCount = $derived(
     store.reminders.filter((item) => !item.done).length,
   );
   function navigate(next: Page, birdId?: string) {
-    if (next === "matches") return;
     if (birdId) selectedBirdId = birdId;
     page = next;
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -153,7 +157,6 @@
     }
   }
   async function open(kind: ModalKind, values: Record<string, string> = {}) {
-    if (kind === "match") return;
     errors = {};
     modalKind = kind;
     photoFile = null;
@@ -169,6 +172,7 @@
             String(value ?? ""),
           ]),
         ),
+        breedChoice: BREEDS.some((breed) => breed === base.breed) ? base.breed : CUSTOM_BREED,
         weight: String(base.weight || ""),
         photo: base.photo || "",
         ...values,
@@ -238,7 +242,10 @@
         dueDate: today(),
         ...values,
       };
-    else draft = { name: "", ...values };
+    else if (kind === "flock") {
+      const flock = store.flocks.find((item) => item.id === values.id);
+      draft = { name: flock?.name ?? "", ...values };
+    } else draft = { name: "", ...values };
     await tick();
     modalElement?.showModal();
   }
@@ -273,8 +280,9 @@
       bird = {
         id: draft.id!,
         name: (draft.name || "").trim(),
-        breed: (draft.breed || "").trim(),
-        bloodline: draft.bloodline || "",
+        breed: (draft.breedChoice === CUSTOM_BREED ? draft.breed : draft.breedChoice)?.trim() || "",
+        bloodline: draft.bloodline?.trim() || "",
+        flockId: draft.flockId || "",
         sex: draft.sex as BirdRecord["sex"],
         color: (draft.color || "").trim(),
         hatchDate: draft.hatchDate || "",
@@ -326,7 +334,7 @@
       required("birdId", "Choose a bird.");
       required("description", "Describe the care task.");
       date("dueDate", true);
-    } else required("name", "Enter a pen name.");
+    } else required("name", kind === "flock" ? "Enter a flock name." : "Enter a pen name.");
     errors = next;
     if (Object.keys(next).length) {
       await tick();
@@ -418,6 +426,13 @@
         closeModal();
         notify("Care reminder scheduled");
         navigate("health");
+      } else if (kind === "flock") {
+        const flock = await store.saveFlock(draft.name!.trim(), draft.id);
+        const editing = !!draft.id;
+        flockFilter = flock.id;
+        saving = false;
+        closeModal();
+        notify(editing ? "Flock renamed" : "Flock added");
       } else if (kind === "pen") {
         const pen = await store.addPen(draft.name!.trim()),
           previous = pendingBirdDraft,
@@ -471,7 +486,7 @@
         onclick={() => navigate("dashboard")}
         aria-label="Sabong dashboard"
         ><span class="brand-mark"><img src="/sabong-mark.png" alt="" /></span
-        ><span><strong>SABONG</strong><small>Stable manager</small></span
+        ><span><strong>SABONG</strong><small>Poultry manager</small></span
         ></button
       >
       <div class="farm-switch">
@@ -550,8 +565,8 @@
         {#if store.photoWarning}<p class="workspace-notice">
             {store.photoWarning}
           </p>{/if}
-        {#if page === "dashboard"}<Dashboard {navigate} {open} {farmName} />
-        {:else if page === "roster"}<Roster {navigate} {open} />
+        {#if page === "dashboard"}<Dashboard {navigate} {open} {farmName} bind:flockFilter />
+        {:else if page === "roster"}<Roster {navigate} {open} bind:flockFilter />
         {:else if page === "profile"}<Profile
             birdId={selectedBirdId}
             {navigate}
@@ -621,7 +636,7 @@
           modalKind === "bird" &&
           store.birds.some((item) => item.id === draft.id)
             ? "Edit bird profile"
-            : modalLabels[modalKind].title}
+            : modalKind === "flock" && draft.id ? "Rename flock" : modalLabels[modalKind].title}
         </h2>
         <p>{modalLabels[modalKind].description}</p>
       </div>
@@ -671,25 +686,36 @@
                 placeholder="e.g. Atlas"
               />{#if errors.name}<small class="field-error">{errors.name}</small
                 >{/if}</label
-            ><label class="field"
-              ><span>Bloodline <b>*</b></span><select
-                bind:value={draft.bloodline}
-                aria-invalid={!!errors.bloodline}
-                ><option value="">Select bloodline</option
-                >{#each BLOODLINES as line}<option value={line}>{line}</option
-                  >{/each}</select
-              >{#if errors.bloodline}<small class="field-error"
-                  >{errors.bloodline}</small
-                >{/if}</label
             >
+            <label class="field">
+              <span>Breed <b>*</b></span>
+              <select bind:value={draft.breedChoice}>
+                {#each BREEDS as breed}<option value={breed}>{breed}</option>{/each}
+                <option value={CUSTOM_BREED}>Custom breed</option>
+              </select>
+            </label>
+            {#if draft.breedChoice === CUSTOM_BREED}
+              <label class="field">
+                <span>Custom breed <b>*</b></span>
+                <input bind:value={draft.breed} aria-invalid={!!errors.breed} />
+                {#if errors.breed}<small class="field-error">{errors.breed}</small>{/if}
+              </label>
+            {/if}
+            <label class="field">
+              <span>Strain or bloodline (optional)</span>
+              <input bind:value={draft.bloodline} />
+            </label>
           </div>
           <div class="form-grid">
-            <label class="field"
-              ><span>Breed</span><input
-                bind:value={draft.breed}
-                aria-invalid={!!errors.breed}
-                placeholder="Chicken"
-              /></label
+            <label class="field">
+              <span>Flock (optional)</span>
+              <select bind:value={draft.flockId}>
+                <option value="">Unassigned</option>
+                {#each store.flocks as flock (flock.id)}
+                  <option value={flock.id}>{flock.name}</option>
+                {/each}
+              </select>
+            </label
             ><label class="field"
               ><span>Sex</span><select bind:value={draft.sex}
                 ><option>Male</option><option>Female</option></select
@@ -896,7 +922,7 @@
                 bind:value={draft.sireId}
                 aria-invalid={!!errors.sireId}
                 >{#each store.birds.filter((item) => item.sex === "Male" && (["Active", "Brood"].includes(item.status) || (draft.id && item.id === draft.sireId))) as bird}<option
-                    value={bird.id}>{bird.name} · {bird.bloodline}</option
+                    value={bird.id}>{bird.name} · {bird.breed || "Unknown breed"}</option
                   >{/each}</select
               >{#if errors.sireId}<small class="field-error"
                   >{errors.sireId}</small
@@ -906,7 +932,7 @@
                 bind:value={draft.damId}
                 aria-invalid={!!errors.damId}
                 >{#each store.birds.filter((item) => item.sex === "Female" && (["Active", "Brood"].includes(item.status) || (draft.id && item.id === draft.damId))) as bird}<option
-                    value={bird.id}>{bird.name} · {bird.bloodline}</option
+                    value={bird.id}>{bird.name} · {bird.breed || "Unknown breed"}</option
                   >{/each}</select
               >{#if errors.damId}<small class="field-error"
                   >{errors.damId}</small
@@ -1031,10 +1057,11 @@
           >
         {:else}
           <label class="field"
-            ><span>Pen name <b>*</b></span><input
+            ><span>{modalKind === "flock" ? "Flock name" : "Pen name"} <b>*</b></span><input
               bind:value={draft.name}
+              maxlength={120}
               aria-invalid={!!errors.name}
-              placeholder="e.g. Pen 7"
+              placeholder={modalKind === "flock" ? "e.g. Backyard flock" : "e.g. Pen 7"}
             />{#if errors.name}<small class="field-error">{errors.name}</small
               >{/if}</label
           >

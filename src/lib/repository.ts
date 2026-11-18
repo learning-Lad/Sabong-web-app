@@ -3,6 +3,7 @@ import type {
   Bird,
   BreedingRecord,
   HealthLog,
+  Flock,
   Pen,
   Reminder,
   Supply,
@@ -10,6 +11,7 @@ import type {
 } from "./types";
 export interface FarmData {
   birds: Bird[];
+  flocks: Flock[];
   pens: Pen[];
   breeding: BreedingRecord[];
   health: HealthLog[];
@@ -23,6 +25,7 @@ const columns: Record<Collection, string[]> = {
     "name",
     "breed",
     "bloodline",
+    "flockId",
     "sex",
     "color",
     "hatchDate",
@@ -37,6 +40,7 @@ const columns: Record<Collection, string[]> = {
     "photoPath",
   ],
   pens: ["id", "name"],
+  flocks: ["id", "name"],
   breeding: [
     "id",
     "sireId",
@@ -51,6 +55,7 @@ const columns: Record<Collection, string[]> = {
   supplies: ["id", "name", "category", "quantity", "unit", "reorderLevel"],
 };
 const nullable = new Set([
+  "flockId",
   "penId",
   "sireId",
   "damId",

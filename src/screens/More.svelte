@@ -10,4 +10,4 @@
     { page: 'reports', title: 'Reports', description: 'Printable farm records', icon: FileText },
   ]
 </script>
-<div class="page-stack"><div class="page-heading"><div><p class="kicker">Explore Sabong</p><h1>More tools</h1><p class="page-lead">Everything else you need to run the stable.</p></div></div><div class="more-grid">{#each items as item}<button onclick={() => navigate(item.page)}><span class="more-icon"><item.icon size={24} /></span><span><strong>{item.title}</strong><small>{item.description}</small></span><ArrowRight size={18} /></button>{/each}</div></div>
+<div class="page-stack"><div class="page-heading"><div><p class="kicker">Explore Sabong</p><h1>More tools</h1><p class="page-lead">Open your farm records and tools.</p></div></div><div class="more-grid">{#each items as item}<button onclick={() => navigate(item.page)}><span class="more-icon"><item.icon size={24} /></span><span><strong>{item.title}</strong><small>{item.description}</small></span><ArrowRight size={18} /></button>{/each}</div></div>

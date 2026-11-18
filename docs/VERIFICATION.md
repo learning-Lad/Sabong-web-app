@@ -1,5 +1,20 @@
 # Web-only verification record
 
+## Poultry tracker revision
+
+- Type checks, production build, 15 database/domain/API checks, and nine Chromium
+  flows passed locally.
+- The PostgreSQL fixture installed the flock migration over an existing farm,
+  preserved old bird values, allowed blank strain entries, and rejected linking a
+  bird to a flock owned by another farm.
+- The browser suite verified mixed and legacy breed values, flock creation and
+  renaming, reload persistence, shared dashboard and directory filtering, and
+  continued care, photo, and recovery flows. Browser cloud requests were mocked.
+- Production checks still require running the new migration in the live Supabase
+  project and checking the Vercel deployment.
+
+## Original web delivery
+
 Checked November 18, 2026. Upstream baseline remains `27a5d76` in
 `nimrodcaraca-rgb/Sabong`; the user's uploaded package/README/Vite configuration
 matches that original demo. This delivery is a standalone web project, not a patch.
