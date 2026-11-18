@@ -1,0 +1,47 @@
+name: Encrypted daily farm backup
+on:
+  schedule:
+    - cron: '0 18 * * *' # 02:00 Asia/Manila, best-effort GitHub scheduling.
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: farm-daily-backup
+  cancel-in-progress: false
+jobs:
+  backup:
+    if: ${{ vars.ENABLE_FARM_BACKUPS == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Verify configuration
+        run: |
+          test -n "$SUPABASE_DB_URL" && test -n "$SUPABASE_URL" && test -n "$SUPABASE_SERVICE_ROLE_KEY" && test -n "$BACKUP_AGE_RECIPIENT" || { echo 'Configure the four backup secrets in DEPLOYMENT.md.'; exit 1; }
+      - name: Install encryption utility
+        run: sudo apt-get update -qq && sudo apt-get install -y age
+      - name: Export database and private photos
+        run: |
+          mkdir -p backup
+          # Match this image's major version to your Supabase PostgreSQL version.
+          docker run --rm -e SUPABASE_DB_URL postgres:17 sh -c 'pg_dump "$SUPABASE_DB_URL" --format=custom --no-owner --no-acl --schema=public --schema=auth --schema=storage' > backup/database.dump
+          node scripts/backup-storage.mjs backup/photos
+          tar -C backup -czf backup.tar.gz database.dump photos
+          age --recipient "$BACKUP_AGE_RECIPIENT" --output farm-backup.tar.gz.age backup.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: encrypted-farm-backup-${{ github.run_id }}
+          path: farm-backup.tar.gz.age
+          retention-days: 7
+          if-no-files-found: error
+      - name: Remove unencrypted temporary files
+        if: always()
+        run: rm -rf backup backup.tar.gz
