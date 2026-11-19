@@ -12,7 +12,7 @@
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
   let activeBirds = $derived(store.birds.filter(bird => bird.status === 'Active' || bird.status === 'Brood'))
   let recentBirds = $derived(store.birds.filter(bird => inFlock(bird, flockFilter)).slice(0, 4))
-  let lowStock = $derived(store.supplies.filter(item => item.quantity <= item.reorderLevel))
+  let lowStock = $derived(store.lowStock)
   let upcoming = $derived(store.reminders.filter(item => !item.done).sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 3))
   let dueCount = $derived(store.reminders.filter(item => !item.done && item.dueDate <= today()).length)
 </script>

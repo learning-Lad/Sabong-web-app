@@ -21,7 +21,9 @@ and running the migration, `npm run setup` creates your local connection setting
 - Named flocks within a single farm account, with flock filters on the dashboard bird list and directory.
 - Lineage bookkeeping, pairing/hatch records and explicitly linked offspring.
 - Bird/pen care logs, reminders, supply usage, atomic stock deductions and version checks.
-- Farm-specific printable reports, date filters and safe CSV exports.
+- Printable individual bird care history and farm reports with date filters and CSV exports.
+- Daily flock checklist, editable egg totals by date, and a seven-day egg summary.
+- In-app notification count for low-stock items and open care reminders.
 - Optional consent-based Gemini/Ollama welfare observations; manual records work if AI fails.
 
 The app excludes cockfighting scheduling, brackets, fighting statistics and fighting

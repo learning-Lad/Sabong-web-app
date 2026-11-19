@@ -6,6 +6,7 @@
     Bird,
     CirclePlus,
     FileText,
+    ClipboardList,
     HeartPulse,
     LayoutDashboard,
     LogOut,
@@ -23,6 +24,7 @@
   import Health from "./screens/Health.svelte";
   import Supplies from "./screens/Supplies.svelte";
   import Reports from "./screens/Reports.svelte";
+  import FlockRecords from "./screens/FlockRecords.svelte";
   import More from "./screens/More.svelte";
   import Assistant from "./screens/Assistant.svelte";
   import { store } from "./lib/store.svelte";
@@ -31,7 +33,7 @@
   import { uploadPhoto, removePhoto } from "./lib/repository";
   import { validateBird, validDate, numberError } from "./lib/validation";
   import type { Bird as BirdRecord, ModalKind, Page } from "./lib/types";
-  import { BREEDS, CUSTOM_BREED, age, makeId, today } from "./lib/utils";
+  import { BREEDS, CUSTOM_BREED, age, formatDate, makeId, today } from "./lib/utils";
   let signedIn = $derived(store.demo || !!auth.user);
   let farmName = $derived(store.farmName);
   let page = $state<Page>("dashboard"),
@@ -46,6 +48,7 @@
   let pendingBirdDraft = $state<Record<string, string> | null>(null);
   let pendingPhoto: File | null = null;
   let modalElement: HTMLDialogElement;
+  let notifications = $state<HTMLDetailsElement>();
   let toastTimer: ReturnType<typeof setTimeout>;
   onMount(() => {
     const stop = auth.initialize();
@@ -68,6 +71,7 @@
     { id: "health" as Page, label: "Care & schedule", icon: HeartPulse },
     { id: "supplies" as Page, label: "Supply tracker", icon: Package },
     { id: "assistant" as Page, label: "Care assistant", icon: Sparkles },
+    { id: "flock-records" as Page, label: "Flock records", icon: ClipboardList },
     { id: "reports" as Page, label: "Reports", icon: FileText },
   ];
   const pageLabels: Record<Page, string> = {
@@ -79,6 +83,7 @@
     supplies: "Supply tracker",
     assistant: "Care assistant",
     reports: "Reports",
+    "flock-records": "Flock records",
     more: "More tools",
   };
   const modalLabels: Record<
@@ -116,6 +121,16 @@
       description: "Create another housing location.",
       action: "Add pen",
     },
+    "flock-task": {
+      title: "Add daily task",
+      description: "This task appears on the flock’s checklist each day.",
+      action: "Save task",
+    },
+    "egg-collection": {
+      title: "Record egg collection",
+      description: "Enter the flock’s total for the selected day.",
+      action: "Save collection",
+    },
     flock: {
       title: "Add flock",
       description: "Group birds for easier browsing in the dashboard and directory.",
@@ -125,7 +140,9 @@
   let pendingCount = $derived(
     store.reminders.filter((item) => !item.done).length,
   );
+  let alertCount = $derived(pendingCount + store.lowStock.length);
   function navigate(next: Page, birdId?: string) {
+    if (notifications) notifications.open = false;
     if (birdId) selectedBirdId = birdId;
     page = next;
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -245,6 +262,14 @@
     else if (kind === "flock") {
       const flock = store.flocks.find((item) => item.id === values.id);
       draft = { name: flock?.name ?? "", ...values };
+    } else if (kind === "egg-collection") {
+      const entry = store.eggCollections.find((item) => item.id === values.id);
+      draft = {
+        count: entry ? String(entry.count) : "",
+        notes: entry?.notes || "",
+        version: String(entry?.version || 1),
+        ...values,
+      };
     } else draft = { name: "", ...values };
     await tick();
     modalElement?.showModal();
@@ -334,6 +359,12 @@
       required("birdId", "Choose a bird.");
       required("description", "Describe the care task.");
       date("dueDate", true);
+    } else if (kind === "flock-task") {
+      required("name", "Enter a task name.");
+    } else if (kind === "egg-collection") {
+      date("date");
+      if (numberError(draft.count, true) || Number(draft.count) > 100000)
+        next.count = "Enter a whole number from 0 to 100,000.";
     } else required("name", kind === "flock" ? "Enter a flock name." : "Enter a pen name.");
     errors = next;
     if (Object.keys(next).length) {
@@ -426,6 +457,22 @@
         closeModal();
         notify("Care reminder scheduled");
         navigate("health");
+      } else if (kind === "flock-task" || kind === "egg-collection") {
+        if (kind === "flock-task") {
+          await store.addFlockTask(draft.flockId!, draft.name!.trim());
+        } else {
+          await store.saveEggCollection({
+            id: draft.id || makeId("EGG"),
+            flockId: draft.flockId!,
+            date: draft.date!,
+            count: Number(draft.count),
+            notes: draft.notes?.trim() || "",
+            version: Number(draft.version),
+          }, !!draft.id);
+        }
+        saving = false;
+        closeModal();
+        notify(kind === "flock-task" ? "Daily task added" : "Egg collection saved");
       } else if (kind === "flock") {
         const flock = await store.saveFlock(draft.name!.trim(), draft.id);
         const editing = !!draft.id;
@@ -542,12 +589,28 @@
               aria-label="Refresh records"
               disabled={store.busy}
               onclick={refresh}><RefreshCw size={18} /></button
-            >{/if}<button
-            class="topbar-notification"
-            aria-label="Open care reminders"
-            onclick={() => navigate("health")}
-            ><Bell size={19} />{#if pendingCount}<i></i>{/if}</button
-          ><span class="user-avatar" title={farmName}>{farmName.charAt(0)}</span
+            >{/if}
+          <details class="notification-menu" bind:this={notifications}>
+            <summary class="topbar-notification" aria-label={`Notifications (${alertCount})`}>
+              <Bell size={19} />
+              {#if alertCount}<span class="notification-count" aria-hidden="true">{alertCount > 99 ? "99+" : alertCount}</span>{/if}
+            </summary>
+            <div class="panel notification-panel">
+              <h2>Notifications</h2>
+              {#if store.lowStock.length}
+                <button class="secondary-button" onclick={() => navigate("supplies")}>
+                  {store.lowStock.length} {store.lowStock.length === 1 ? "item needs" : "items need"} restocking
+                </button>
+              {/if}
+              {#if pendingCount}
+                <button class="secondary-button" onclick={() => navigate("health")}>
+                  {pendingCount} open care {pendingCount === 1 ? "reminder" : "reminders"}
+                </button>
+              {/if}
+              {#if !alertCount}<p class="muted-note">No open notifications.</p>{/if}
+            </div>
+          </details>
+          <span class="user-avatar" title={farmName}>{farmName.charAt(0)}</span
           ><button class="mobile-logout" aria-label="Sign out" onclick={signOut}
             ><LogOut size={19} /></button
           >
@@ -577,6 +640,7 @@
         {:else if page === "health"}<Health {open} {notify} />
         {:else if page === "supplies"}<Supplies {open} {notify} />
         {:else if page === "assistant"}<Assistant />
+        {:else if page === "flock-records"}<FlockRecords {open} initialFlock={flockFilter} viewBirds={() => navigate("roster")} />
         {:else if page === "reports"}<Reports {farmName} />
         {:else}<More {navigate} />{/if}
       </main>
@@ -1055,6 +1119,23 @@
                 >{errors.dueDate}</small
               >{/if}</label
           >
+        {:else if modalKind === "egg-collection"}
+          <p class="muted-note">{formatDate(draft.date || "")}</p>
+          <label class="field">
+            <span>Eggs collected <b>*</b></span>
+            <input type="number" min="0" max="100000" step="1" value={draft.count} oninput={(event) => (draft.count = event.currentTarget.value)} aria-invalid={!!errors.count} />
+            {#if errors.count}<small class="field-error">{errors.count}</small>{/if}
+          </label>
+          <label class="field">
+            <span>Notes (optional)</span>
+            <textarea maxlength="500" bind:value={draft.notes}></textarea>
+          </label>
+        {:else if modalKind === "flock-task"}
+          <label class="field">
+            <span>Task name <b>*</b></span>
+            <input maxlength="120" bind:value={draft.name} aria-invalid={!!errors.name} placeholder="e.g. Check waterers" />
+            {#if errors.name}<small class="field-error">{errors.name}</small>{/if}
+          </label>
         {:else}
           <label class="field"
             ><span>{modalKind === "flock" ? "Flock name" : "Pen name"} <b>*</b></span><input

@@ -36,20 +36,18 @@ Express server, or a Supabase CLI installation for the main deployment steps.
 ## Upgrade an existing deployment
 
 1. Keep your current Supabase project and Vercel environment variables.
-2. With a current database backup available, open a new SQL Editor query in the
-   existing Supabase project. Paste and run the full contents of
-   `supabase/migrations/202611180002_poultry_flocks.sql` once. Earlier installs
-   already have the original farm-records migration.
-3. In Table Editor, verify `app_flocks` exists and existing birds are present.
-   Earlier bird profiles retain their saved breed and bloodline. Their flock
-   starts unassigned.
-4. Deploy the updated source to the existing Vercel project after the migration
-   succeeds. If the project deploys from GitHub, merge or push to the production
-   branch at this point.
-5. On the production URL, open an existing bird profile, then add a flock and
-   register a test bird with **Unknown** or **Mixed / Crossbreed** and a blank
-   strain. Reload and verify both records, flock filters, and the Bird report.
-   Repeat the bird form check at phone width and open the dropdown on Windows.
+2. Back up the existing database. In Supabase **Table Editor**, check the
+   `public` schema for `app_flocks`. If it is missing, run the full contents
+   of `supabase/migrations/202611180002_poultry_flocks.sql` in a new SQL Editor
+   query. This is the earlier flock migration.
+3. Run `supabase/migrations/202611200003_flock_care_and_eggs.sql` in a separate new
+   SQL Editor query. Run each migration once. Verify Table Editor shows
+   `app_flock_tasks`, `app_flock_checks`, and `app_egg_collections`.
+4. Deploy the updated source to the existing Vercel project after the migrations
+   succeed. If it deploys from GitHub, merge or push to the production branch.
+5. Open the production URL and sign in. Check an existing bird profile, then
+   create a flock task, mark it done and save an egg count. Reload to verify both
+   records. Check the low-stock bell count and print one bird's care history.
 
 ## 2. Create your Supabase project and database
 
@@ -69,10 +67,12 @@ Express server, or a Supabase CLI installation for the main deployment steps.
 6. Open a second new query, then run the full contents of
    `supabase/migrations/202611180002_poultry_flocks.sql`. Apply migrations in
    filename order and run each once.
-7. Check that Table Editor contains `app_farms`, `app_birds`, `app_pens`, `app_flocks`,
+7. In a third new query, run `supabase/migrations/202611200003_flock_care_and_eggs.sql`.
+8. Check that Table Editor contains `app_farms`, `app_birds`, `app_pens`, `app_flocks`,
    `app_breeding`, `app_health`, `app_reminders`, `app_supplies`,
-   `app_supply_movements`, `app_sessions` and `app_ai_requests`.
-8. Under **Storage**, verify the `farm-bird-photos` bucket exists and is **private**.
+   `app_supply_movements`, `app_sessions`, `app_ai_requests`, `app_flock_tasks`,
+   `app_flock_checks` and `app_egg_collections`.
+9. Under **Storage**, verify the `farm-bird-photos` bucket exists and is **private**.
    The migration creates the bucket and its access policies; do not make it public.
 
 For a current farm-records database, use the upgrade steps above.

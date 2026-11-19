@@ -77,6 +77,47 @@ test("PostgreSQL migration, tenant isolation, validation, concurrency and inacti
     );
     await identity(userA, sessionA);
   });
+  await db.exec("reset role");
+  await db.exec(await readFile(
+    new URL("../supabase/migrations/202611200003_flock_care_and_eggs.sql", import.meta.url), "utf8",
+  ));
+  await identity(userA, sessionA);
+  await t.test("daily flock checks and egg totals are private and unique", async () => {
+    await db.exec(`insert into public.app_flock_tasks(id,"flockId",name) values ('TASK','F1','Check water');
+      insert into public.app_flock_checks(id,"taskId",date) values ('CHECK','TASK','2024-05-01');
+      insert into public.app_egg_collections(id,"flockId",date,count) values ('EGG','F1','2024-05-01',0);`);
+    await assert.rejects(
+      db.exec(`insert into public.app_flock_checks(id,"taskId",date) values ('CHECK2','TASK','2024-05-01')`),
+      /duplicate key/,
+    );
+    await assert.rejects(
+      db.exec(`insert into public.app_egg_collections(id,"flockId",date,count) values ('EGG2','F1','2024-05-01',4)`),
+      /duplicate key/,
+    );
+    await assert.rejects(
+      db.exec(`update public.app_egg_collections set count=-1 where id='EGG'`),
+      /check constraint/,
+    );
+    await db.exec(`update public.app_egg_collections set count=10,notes='Morning count' where id='EGG' and version=1`);
+    assert.deepEqual(
+      await one(`select count,version from public.app_egg_collections where id='EGG'`),
+      { count: 10, version: 2 },
+    );
+    await identity(userB, sessionB);
+    for (const table of ["app_flock_tasks", "app_flock_checks", "app_egg_collections"])
+      assert.equal((await one(`select count(*)::int as n from public.${table}`)).n, 0);
+    await assert.rejects(
+      db.exec(`insert into public.app_flock_checks(id,"taskId",date) values ('OTHER','TASK','2024-05-01')`),
+      /foreign key/,
+    );
+    await assert.rejects(
+      db.exec(`insert into public.app_egg_collections(id,"flockId",date,count) values ('OTHER','F1','2024-05-01',9)`),
+      /foreign key/,
+    );
+    await identity(userA, sessionA);
+    await db.exec(`delete from public.app_flock_checks where id='CHECK' and version=1`);
+    assert.equal((await one(`select count(*)::int as n from public.app_flock_checks`)).n, 0);
+  });
   await t.test(
     "farm B cannot read/write farm A records or photos",
     async () => {

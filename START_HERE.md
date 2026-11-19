@@ -25,7 +25,7 @@ server is needed. You supply your own cloud credentials; no real account keys ar
 Follow **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)**, sections 1–4:
 
 1. Create your Supabase project.
-2. Run the two SQL migrations in filename order, once each, for a new project. For an existing project, use the deployment guide's upgrade steps.
+2. Run the three SQL migrations in filename order, once each, for a new project. For an existing project, use the deployment guide's upgrade steps.
 3. Copy your project URL and **publishable** key from Supabase.
 4. In the VS Code terminal run:
 
@@ -72,7 +72,7 @@ Site URL and redirect allowlist to your final HTTPS domain.
 | File or folder | Purpose |
 | --- | --- |
 | `src/`, `public/` | Existing web screens, styling, and assets with connected features |
-| `supabase/migrations/` | Farm database and the flock and optional-strain upgrade |
+| `supabase/migrations/` | Farm database, flock and optional-strain upgrade, and flock care and egg tables |
 | `.env.example` | Names of the public and private configuration values |
 | `api/farm-assistant.ts`, `server/` | Server-side AI endpoint for Vercel and local development |
 | `DEPLOYMENT_GUIDE.md` | Complete instructions, key locations, email, troubleshooting, backups |

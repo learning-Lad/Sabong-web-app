@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowLeft, Bird, CalendarDays, ChevronRight, HeartPulse, Pencil, Trash2 } from '@lucide/svelte'
+  import { ArrowLeft, Bird, CalendarDays, ChevronRight, HeartPulse, Pencil, Printer, Trash2 } from '@lucide/svelte'
   import BirdAvatar from '../components/BirdAvatar.svelte'
   import { store } from '../lib/store.svelte'
   import type { ModalKind, Page } from '../lib/types'
@@ -9,10 +9,10 @@
   let deleting=$state(false)
   async function removeBird(){if(!bird||!window.confirm('Delete '+bird.name+'? Linked records must be removed first.'))return;deleting=true;try{await store.deleteBird(bird.id);notify('Bird deleted');navigate('roster')}catch(error){notify(readableError(error))}finally{deleting=false}}
   let bird = $derived(store.birds.find(item => item.id === birdId))
-  let birdHealth = $derived(store.health.filter(log => log.targetType === 'bird' && log.targetId === birdId))
+  let birdHealth = $derived(store.health.filter(log => log.targetType === 'bird' && log.targetId === birdId).sort((a, b) => b.date.localeCompare(a.date)))
 </script>
 {#if bird}
-<div class="page-stack">
+<div class="page-stack print-hide">
   <button class="back-button" onclick={() => navigate('roster')}><ArrowLeft size={18} /> Back to birds</button>
   <section class="profile-hero panel">
     <BirdAvatar name={bird.name} photo={bird.photo} size="lg" />
@@ -33,11 +33,27 @@
     </div>
     <div class="page-stack">
       <section class="panel"><div class="section-header compact"><div><h2>Quick actions</h2></div></div><div class="profile-actions"><button onclick={() => open('health', { targetType: 'bird', targetId: bird.id })}><HeartPulse size={20} /> Log care</button><button class="danger-button" disabled={deleting} onclick={removeBird}><Trash2 size={20} /> {deleting?'Deleting…':'Delete bird'}</button><button onclick={() => open('reminder', { birdId: bird.id })}><CalendarDays size={20} /> Set reminder</button><button onclick={() => navigate('breeding')}><Bird size={20} /> View breeding</button></div></section>
-      <section class="panel"><div class="section-header compact"><div><h2>Health history</h2></div><button class="text-button" onclick={() => navigate('health')}>All logs <ChevronRight size={16} /></button></div>{#if birdHealth.length}{#each birdHealth.slice(0, 3) as log}<div class="history-row"><span class="history-dot"></span><div><strong>{log.category}</strong><small>{log.notes}{log.targetType==='pen'?' · Pen-wide care':''}</small></div><time>{formatDate(log.date)}</time></div>{/each}{:else}<p class="muted-note">No health entries for this bird yet.</p>{/if}</section>
+      <section class="panel"><div class="section-header compact"><div><h2>Health history</h2></div><button class="text-button" onclick={() => window.print()}><Printer size={16} /> Print care history</button><button class="text-button" onclick={() => navigate('health')}>All logs <ChevronRight size={16} /></button></div>{#if birdHealth.length}{#each birdHealth.slice(0, 3) as log}<div class="history-row"><span class="history-dot"></span><div><strong>{log.category}</strong><small>{log.notes}{log.targetType==='pen'?' · Pen-wide care':''}</small></div><time>{formatDate(log.date)}</time></div>{/each}{:else}<p class="muted-note">No health entries for this bird yet.</p>{/if}</section>
 
     </div>
   </div>
 </div>
+<section class="bird-care-print">
+  <h1>Care history for {bird.name}</h1>
+  <p>{store.farmName} · Bird ID {bird.id} · {bird.breed || "Unknown breed"}</p>
+  {#if birdHealth.length}
+    <table>
+      <thead><tr><th scope="col">Date</th><th scope="col">Care type</th><th scope="col">Notes</th></tr></thead>
+      <tbody>
+        {#each birdHealth as log (log.id)}
+          <tr><td>{formatDate(log.date)}</td><td>{log.category}</td><td>{log.notes}</td></tr>
+        {/each}
+      </tbody>
+    </table>
+  {:else}
+    <p>No individual care entries have been recorded for this bird.</p>
+  {/if}
+</section>
 {:else}
 <div class="empty-state"><Bird size={30} /><h2>Bird not found</h2><button class="secondary-button" onclick={() => navigate('roster')}>Return to roster</button></div>
 {/if}

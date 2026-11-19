@@ -4,6 +4,9 @@ import type {
   BreedingRecord,
   HealthLog,
   Flock,
+  FlockTask,
+  FlockCheck,
+  EggCollection,
   Pen,
   Reminder,
   Supply,
@@ -12,6 +15,9 @@ import type {
 export interface FarmData {
   birds: Bird[];
   flocks: Flock[];
+  flock_tasks: FlockTask[];
+  flock_checks: FlockCheck[];
+  egg_collections: EggCollection[];
   pens: Pen[];
   breeding: BreedingRecord[];
   health: HealthLog[];
@@ -41,6 +47,9 @@ const columns: Record<Collection, string[]> = {
   ],
   pens: ["id", "name"],
   flocks: ["id", "name"],
+  flock_tasks: ["id", "flockId", "name"],
+  flock_checks: ["id", "taskId", "date"],
+  egg_collections: ["id", "flockId", "date", "count", "notes"],
   breeding: [
     "id",
     "sireId",
@@ -110,10 +119,14 @@ export async function save<T extends { id: string } & Versioned>(
 ): Promise<T> {
   const client = cloud(),
     values = payload(kind, record);
+  // Egg identity is fixed after insert. Edit only the recorded totals and notes.
+  const changes = kind === "egg_collections"
+    ? { count: values.count, notes: values.notes }
+    : values;
   const query = exists
     ? client
         .from("app_" + kind)
-        .update(values)
+        .update(changes)
         .eq("id", record.id)
         .eq("version", record.version ?? 1)
     : client.from("app_" + kind).insert(values);

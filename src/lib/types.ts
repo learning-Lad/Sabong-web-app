@@ -6,10 +6,11 @@ export type Page =
   | "health"
   | "supplies"
   | "reports"
+  | "flock-records"
   | "more"
   | "assistant";
 export type ModalKind =
-  "bird" | "health" | "breeding" | "supply" | "reminder" | "pen" | "flock";
+  "bird" | "health" | "breeding" | "supply" | "reminder" | "pen" | "flock" | "flock-task" | "egg-collection";
 
 export interface Versioned {
   version?: number;
@@ -37,6 +38,23 @@ export interface Bird extends Versioned {
 export interface Flock extends Versioned {
   id: string;
   name: string;
+}
+export interface FlockTask extends Versioned {
+  id: string;
+  flockId: string;
+  name: string;
+}
+export interface FlockCheck extends Versioned {
+  id: string;
+  taskId: string;
+  date: string;
+}
+export interface EggCollection extends Versioned {
+  id: string;
+  flockId: string;
+  date: string;
+  count: number;
+  notes: string;
 }
 export interface Pen extends Versioned {
   id: string;
