@@ -181,7 +181,8 @@
       const bird = values.id
           ? store.birds.find((item) => item.id === values.id)
           : undefined,
-        base = bird || store.createEmptyBird();
+        base = bird || store.createEmptyBird(),
+        isPresetBreed = BREEDS.some((breed) => breed === base.breed);
       draft = {
         ...Object.fromEntries(
           Object.entries(base).map(([key, value]) => [
@@ -189,7 +190,8 @@
             String(value ?? ""),
           ]),
         ),
-        breedChoice: BREEDS.some((breed) => breed === base.breed) ? base.breed : CUSTOM_BREED,
+        breedChoice: isPresetBreed ? base.breed : CUSTOM_BREED,
+        customBreed: isPresetBreed ? "" : base.breed,
         weight: String(base.weight || ""),
         photo: base.photo || "",
         ...values,
@@ -305,7 +307,7 @@
       bird = {
         id: draft.id!,
         name: (draft.name || "").trim(),
-        breed: (draft.breedChoice === CUSTOM_BREED ? draft.breed : draft.breedChoice)?.trim() || "",
+        breed: (draft.breedChoice === CUSTOM_BREED ? draft.customBreed : draft.breedChoice)?.trim() || "",
         bloodline: draft.bloodline?.trim() || "",
         flockId: draft.flockId || "",
         sex: draft.sex as BirdRecord["sex"],
@@ -547,14 +549,17 @@
       <nav class="side-nav" aria-label="Main navigation">
         {#each nav as item}
           {@const Icon = item.icon}
+          {@const count = item.id === "health" ? pendingCount : item.id === "supplies" ? store.lowStock.length : 0}
           <button
             class:current={page === item.id ||
               (page === "profile" && item.id === "roster")}
+            aria-describedby={count ? `nav-${item.id}-count` : undefined}
             onclick={() => navigate(item.id)}
             ><Icon size={19} strokeWidth={1.8} /><span>{item.label}</span
-            >{#if item.id === "health" && pendingCount}<small
-                >{pendingCount}</small
-              >{/if}</button
+            >{#if count}<small class="nav-count" aria-hidden="true"
+                >{count}</small><span id={`nav-${item.id}-count`} hidden>
+                {count} {item.id === "health" ? "open care reminders" : "low-stock items"}
+              </span>{/if}</button
           >
         {/each}
       </nav>
@@ -637,10 +642,10 @@
             {notify}
           />
         {:else if page === "breeding"}<Breeding {navigate} {open} />
-        {:else if page === "health"}<Health {open} {notify} />
+        {:else if page === "health"}<Health {open} {notify} openChecklist={() => navigate("flock-records")} />
         {:else if page === "supplies"}<Supplies {open} {notify} />
         {:else if page === "assistant"}<Assistant />
-        {:else if page === "flock-records"}<FlockRecords {open} initialFlock={flockFilter} viewBirds={() => navigate("roster")} />
+        {:else if page === "flock-records"}<FlockRecords {open} initialFlock={flockFilter} />
         {:else if page === "reports"}<Reports {farmName} />
         {:else}<More {navigate} />{/if}
       </main>
@@ -755,13 +760,13 @@
               <span>Breed <b>*</b></span>
               <select bind:value={draft.breedChoice}>
                 {#each BREEDS as breed}<option value={breed}>{breed}</option>{/each}
-                <option value={CUSTOM_BREED}>Custom breed</option>
+                <option value={CUSTOM_BREED}>Other</option>
               </select>
             </label>
             {#if draft.breedChoice === CUSTOM_BREED}
               <label class="field">
-                <span>Custom breed <b>*</b></span>
-                <input bind:value={draft.breed} aria-invalid={!!errors.breed} />
+                <span>Breed name <b>*</b></span>
+                <input bind:value={draft.customBreed} placeholder="e.g. Silkie" aria-invalid={!!errors.breed} />
                 {#if errors.breed}<small class="field-error">{errors.breed}</small>{/if}
               </label>
             {/if}

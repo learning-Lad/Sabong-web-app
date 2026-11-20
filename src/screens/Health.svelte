@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { CalendarDays, Check, CirclePlus, ClipboardPlus, HeartPulse } from '@lucide/svelte'
+  import { CalendarDays, Check, ClipboardList, CirclePlus, ClipboardPlus, HeartPulse } from '@lucide/svelte'
   import { store } from '../lib/store.svelte'
   import type { ModalKind } from '../lib/types'
   import { birdName, formatDate, today } from '../lib/utils'
   import { readableError } from '../lib/supabase'
-  let { open, notify }: { open: (kind: ModalKind) => void; notify:(message:string)=>void } = $props()
+  let { open, notify, openChecklist }: { open: (kind: ModalKind) => void; notify:(message:string)=>void; openChecklist: () => void } = $props()
   let working=$state<string[]>([])
   async function toggle(id:string){if(working.includes(id))return;working=[...working,id];try{await store.toggleReminder(id);notify('Reminder updated')}catch(error){notify(readableError(error))}finally{working=working.filter(item=>item!==id)}}
   let tab = $state<'logs' | 'schedule'>('logs')
@@ -19,6 +19,10 @@
 </script>
 <div class="page-stack">
   <div class="page-heading"><div><p class="kicker">Health & care</p><h1>Keep care on track</h1><p class="page-lead">Treatments, vaccinations, vitamins, and upcoming tasks.</p></div><div class="heading-actions"><button class="secondary-button" onclick={() => open('reminder')}><CalendarDays size={17} /> Set reminder</button><button class="primary-button" onclick={() => open('health')}><CirclePlus size={18} /> Log care</button></div></div>
+  <section class="panel checklist-link">
+    <div><h2>Flock care checklist</h2><p>Track daily chores such as checking water and replacing bedding.</p></div>
+    <button class="secondary-button" onclick={openChecklist}><ClipboardList size={17} /> Open checklist</button>
+  </section>
   <div class="tab-list" role="tablist" aria-label="Care views"><button role="tab" aria-selected={tab === 'logs'} class:current={tab === 'logs'} onclick={() => tab = 'logs'}><ClipboardPlus size={17} /> Care log</button><button role="tab" aria-selected={tab === 'schedule'} class:current={tab === 'schedule'} onclick={() => tab = 'schedule'}><CalendarDays size={17} /> Schedule</button></div>
   {#if tab === 'logs'}
     <div class="detail-columns">
