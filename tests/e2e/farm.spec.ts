@@ -185,6 +185,13 @@ test("cloud bird records persist on reload; edit, unassign pen and validation wo
   await page
     .getByRole("button", { name: "Register bird", exact: true })
     .click();
+  await page.getByLabel("Bird name").fill("Keep this draft");
+  const dialog = page.getByRole("dialog");
+  const bounds = await dialog.boundingBox();
+  expect(bounds?.x).toBeGreaterThan(10);
+  await page.mouse.click(5, 5);
+  await expect(dialog).toBeVisible();
+  await expect(page.getByLabel("Bird name")).toHaveValue("Keep this draft");
   await page.getByRole("button", { name: "Save bird", exact: true }).click();
   await expect(page.locator('[aria-invalid="true"]').first()).toBeVisible();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -206,13 +213,19 @@ test("cloud bird records persist on reload; edit, unassign pen and validation wo
   await page.getByRole("button", { name: /Test bird/ }).click();
   await page.getByRole("button", { name: "Edit profile" }).click();
   await page.getByLabel("Bird name").fill("Updated bird");
+  await page.getByRole("combobox", { name: "Breed *", exact: true }).selectOption({ label: "Other" });
+  const breedName = page.getByRole("textbox", { name: /^Breed name/ });
+  await expect(breedName).toHaveValue("");
+  await page.getByRole("button", { name: "Save bird", exact: true }).click();
+  await expect(breedName).toHaveAttribute("aria-invalid", "true");
+  await breedName.fill("Silkie");
   await page.getByRole("dialog").getByLabel(/^Pen/).selectOption("");
   await page.getByLabel("Status").selectOption("Sold");
   await page.getByRole("button", { name: "Save bird", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Updated bird" }),
   ).toBeVisible();
-  expect(backend.rows.birds[0].status).toBe("Sold");
+  expect(backend.rows.birds[0]).toMatchObject({ status: "Sold", breed: "Silkie" });
   expect(backend.rows.birds[0].penId).toBe(null);
   expect(errors).toEqual([]);
 });
@@ -233,7 +246,7 @@ test("flocks and custom breed records survive reload and filter the dashboard an
   await page.getByLabel("Filter by flock").selectOption({ label: "Unassigned birds" });
   await page.getByRole("button", { name: /Legacy bird/ }).click();
   await page.getByRole("button", { name: "Edit profile" }).click();
-  await expect(page.getByRole("textbox", { name: "Custom breed *", exact: true })).toHaveValue("Gamefowl");
+  await expect(page.getByRole("textbox", { name: "Breed name *", exact: true })).toHaveValue("Gamefowl");
   await expect(page.getByLabel("Strain or bloodline")).toHaveValue("Sweater × Kelso");
   await page.getByRole("combobox", { name: "Flock (optional)", exact: true }).selectOption({ label: "Backyard" });
   await page.getByRole("button", { name: "Save bird", exact: true }).click();
@@ -305,10 +318,15 @@ test("care stock deductions, reminders, reports and AI failure keep manual recor
 });
 test("flock checklist and egg counts save, reload, and stay scoped to the chosen flock", async ({ page }) => {
   const { rows } = await mockCloud(page);
-  rows.flocks.push({ id: "F1", name: "Layers" }, { id: "F2", name: "Backyard" });
   await login(page);
-  await nav(page, "Flock records");
-  await page.getByRole("combobox", { name: "Flock", exact: true }).selectOption("F1");
+  await nav(page, "Care & schedule");
+  await page.getByRole("button", { name: "Open checklist" }).click();
+  await page.getByRole("button", { name: "Add flock", exact: true }).click();
+  await page.getByLabel("Flock name").fill("Layers");
+  await page.getByRole("button", { name: "Save flock" }).click();
+  const firstFlock = page.getByRole("combobox", { name: "Flock", exact: true });
+  await expect(firstFlock).toHaveValue(/^F-/);
+  rows.flocks.push({ id: "F2", name: "Backyard" });
   await page.getByRole("button", { name: "Add task" }).click();
   await page.getByRole("textbox", { name: /Task name/ }).fill("Check water");
   await page.getByRole("button", { name: "Save task" }).click();
@@ -335,7 +353,7 @@ test("flock checklist and egg counts save, reload, and stay scoped to the chosen
   await expect(task).toHaveCount(0);
   await expect(page.getByText("0 eggs recorded in the last 7 days")).toBeVisible();
   expect(rows.egg_collections).toHaveLength(1);
-  expect(rows.egg_collections[0]).toMatchObject({ flockId: "F1", count: 7 });
+  expect(rows.egg_collections[0]).toMatchObject({ flockId: rows.flocks[0].id, count: 7 });
 });
 
 test("bird care printing includes all individual records and excludes unrelated care", async ({ page }) => {
@@ -363,6 +381,9 @@ test("notification bell counts low stock and links to the inventory", async ({ p
   rows.supplies.push({ id: "FEED", name: "Feed", quantity: 2, reorderLevel: 2, unit: "kg", category: "Feed", version: 1 });
   rows.reminders.push({ id: "CARE", birdId: "UNKNOWN", description: "Care reminder", dueDate: "2025-02-01", done: false });
   await login(page);
+  const supplyBadge = page.getByRole("navigation", { name: "Main navigation" })
+    .getByRole("button", { name: "Supply tracker" }).locator(".nav-count");
+  await expect(supplyBadge).toHaveText("1");
   const bell = page.getByLabel("Notifications (2)");
   await expect(bell.locator(".notification-count")).toHaveText("2");
   await bell.click();
@@ -373,6 +394,7 @@ test("notification bell counts low stock and links to the inventory", async ({ p
   rows.supplies[0].quantity = 6;
   await page.getByRole("button", { name: "Refresh records" }).click();
   await expect(page.getByLabel("Notifications (1)").locator(".notification-count")).toHaveText("1");
+  await expect(supplyBadge).toHaveCount(0);
 });
 
 test("registration and recovery contact the auth service and show honest confirmation", async ({
@@ -421,7 +443,11 @@ test("mobile navigation, modal entry and report access fit the screen", async ({
     .click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await mobile.getByRole("button", { name: "Care", exact: true }).click();
+  await page.getByRole("button", { name: "Open checklist" }).click();
+  await expect(page.getByRole("heading", { name: "Flock care checklist" })).toBeVisible();
   await mobile.getByRole("button", { name: "More", exact: true }).click();
+  await expect(page.getByRole("button", { name: /Supply tracker/ }).locator(".nav-count")).toHaveText("2");
   await page
     .getByRole("button", { name: /Reports Printable farm records/ })
     .click();
@@ -470,19 +496,52 @@ test("private photo upload survives profile reload without a public URL", async 
   await login(page);
   await createBird(page, "Photo bird");
   await page.getByRole("button", { name: "Edit profile" }).click();
-  await page
-    .locator('dialog input[type="file"]')
-    .first()
-    .setInputFiles({
-      name: "bird.png",
-      mimeType: "image/png",
-      buffer: Buffer.from(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ1EAAAAASUVORK5CYII=",
-        "base64",
-      ),
-    });
+  const sample = await page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 300;
+    canvas.height = 150;
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "red";
+    ctx.fillRect(0, 0, 150, 150);
+    ctx.fillStyle = "blue";
+    ctx.fillRect(150, 0, 150, 150);
+    return canvas.toDataURL("image/png").split(",")[1];
+  });
+  const input = page.locator('dialog input[type="file"]').first();
+  const crop = page.getByRole("region", { name: "Crop bird photo" });
+  await input.setInputFiles({ name: "bird.png", mimeType: "image/png", buffer: Buffer.from(sample, "base64") });
+  await expect(crop).toBeVisible();
+  await page.getByRole("button", { name: "Discard selected photo" }).click();
+  await expect(crop).toHaveCount(0);
+  await input.setInputFiles({ name: "bird.png", mimeType: "image/png", buffer: Buffer.from(sample, "base64") });
+  await expect(crop).toBeVisible();
+  await page.getByRole("slider", { name: "Zoom" }).press("End");
+  const horizontal = page.getByRole("slider", { name: "Horizontal position" });
+  const frame = page.locator(".photo-crop-frame");
+  await frame.scrollIntoViewIfNeeded();
+  const box = (await frame.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 4, box.y + box.height / 2, { steps: 3 });
+  await page.mouse.up();
+  await expect(horizontal).toHaveValue(/^-\d+/);
+  await horizontal.press("Home");
+  await page.getByRole("button", { name: "Add a new pen" }).click();
+  await page.getByLabel("Pen name").fill("Crop pen");
+  await page.getByRole("button", { name: "Add pen", exact: true }).click();
+  await expect(horizontal).toHaveValue("-100");
   await page.getByRole("button", { name: "Save bird", exact: true }).click();
-  await expect(page.locator(".profile-hero img")).toBeVisible();
+  const savedPhoto = page.locator(".profile-hero img");
+  await expect(savedPhoto).toBeVisible();
+  await expect.poll(() => savedPhoto.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(50);
+  const pixel = await savedPhoto.evaluate((el: HTMLImageElement) => {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(el, 0, 0);
+    return Array.from(ctx.getImageData(25, 25, 1, 1).data);
+  });
+  expect(pixel[2]).toBeGreaterThan(240);
+  expect(pixel[0]).toBeLessThan(15);
   expect(backend.rows.birds[0].photoPath).toMatch(
     new RegExp("^" + farmId + "/"),
   );

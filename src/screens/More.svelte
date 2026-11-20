@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ArrowRight, ClipboardList, Bird, FileText, HeartPulse, Package, Sparkles } from '@lucide/svelte'
+  import { store } from '../lib/store.svelte'
   import type { Page } from '../lib/types'
   let { navigate }: { navigate: (page: Page) => void } = $props()
   const items: { page: Page; title: string; description: string; icon: typeof Bird }[] = [
@@ -11,4 +12,4 @@
     { page: 'reports', title: 'Reports', description: 'Printable farm records', icon: FileText },
   ]
 </script>
-<div class="page-stack"><div class="page-heading"><div><p class="kicker">Explore Sabong</p><h1>More tools</h1><p class="page-lead">Open your farm records and tools.</p></div></div><div class="more-grid">{#each items as item}<button onclick={() => navigate(item.page)}><span class="more-icon"><item.icon size={24} /></span><span><strong>{item.title}</strong><small>{item.description}</small></span><ArrowRight size={18} /></button>{/each}</div></div>
+<div class="page-stack"><div class="page-heading"><div><p class="kicker">Explore Sabong</p><h1>More tools</h1><p class="page-lead">Open your farm records and tools.</p></div></div><div class="more-grid">{#each items as item}<button aria-describedby={item.page === 'supplies' && store.lowStock.length ? 'more-low-stock' : undefined} onclick={() => navigate(item.page)}><span class="more-icon"><item.icon size={24} /></span><span><strong>{item.title}</strong><small>{item.description}</small></span>{#if item.page === 'supplies' && store.lowStock.length}<span class="nav-count" aria-hidden="true">{store.lowStock.length}</span><span id="more-low-stock" hidden>{store.lowStock.length} low-stock items</span>{:else}<ArrowRight size={18} />{/if}</button>{/each}</div></div>

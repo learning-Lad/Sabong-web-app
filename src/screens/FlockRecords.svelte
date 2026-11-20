@@ -5,10 +5,9 @@
   import { formatDate, offsetDate, today } from "../lib/utils";
   import type { ModalKind } from "../lib/types";
 
-  let { open, initialFlock, viewBirds }: {
+  let { open, initialFlock }: {
     open: (kind: ModalKind, values?: Record<string, string>) => void;
     initialFlock: string;
-    viewBirds: () => void;
   } = $props();
   let chosenFlock = $state("");
   let flockId = $derived(
@@ -117,8 +116,8 @@
     </div>
   {:else}
     <section class="panel page-stack">
-      <p class="muted-note">Create a flock in the Bird directory to start tracking its care and egg collection.</p>
-      <button class="secondary-button" onclick={viewBirds}>Open Bird directory</button>
+      <p class="muted-note">Add a flock to start tracking its daily chores and egg collection.</p>
+      <button class="secondary-button" onclick={() => open("flock")}>Add flock</button>
     </section>
   {/if}
 </div>

@@ -64,7 +64,7 @@
       <TriangleAlert size={20} />
       <div>
         <strong
-          >{low.length} item{low.length === 1 ? "" : "s"} need restocking</strong
+          >{low.length} {low.length === 1 ? "item needs" : "items need"} restocking</strong
         ><span>{low.map((item) => item.name).join(", ")}</span>
       </div>
     </div>{/if}
