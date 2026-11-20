@@ -22,7 +22,7 @@ export function validateBird(
   today: string,
 ) {
   const errors: Record<string, string> = {};
-  for (const key of ["name", "breed", "bloodline", "color"] as const)
+  for (const key of ["name", "breed", "color"] as const)
     if (!bird[key].trim()) errors[key] = "This field is required.";
   if (!validDate(bird.hatchDate) || bird.hatchDate > today)
     errors.hatchDate = "Choose a valid hatch date that is not in the future.";

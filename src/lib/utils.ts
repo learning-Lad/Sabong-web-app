@@ -1,20 +1,23 @@
-import type { Bird, MatchRecord } from "./types";
+import type { Bird } from "./types";
 
-export const BLOODLINES = [
-  "Sweater",
-  "Hatch",
-  "Kelso",
-  "Roundhead",
-  "Asil",
-  "Radio",
-  "Lemon 84",
-  "Claret",
-  "Grey",
-  "Butcher",
-  "Albany",
-  "Blueface",
-  "Other",
-];
+export const BREEDS = [
+  "Rhode Island Red",
+  "Plymouth Rock",
+  "Leghorn",
+  "Orpington",
+  "Sussex",
+  "Mixed / Crossbreed",
+  "Unknown",
+] as const;
+export const CUSTOM_BREED = "__custom__";
+export const UNASSIGNED_FLOCK = "__unassigned__";
+
+export function inFlock(bird: Bird, filter: string) {
+  if (!filter) return true;
+  if (filter === UNASSIGNED_FLOCK) return !bird.flockId;
+  return bird.flockId === filter;
+}
+
 export const farmDate = (date: Date) =>
   new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Manila",
@@ -59,25 +62,6 @@ export function age(value: string) {
 }
 export function birdName(birds: Bird[], id: string) {
   return birds.find((bird) => bird.id === id)?.name || "Unknown bird";
-}
-export function recordFor(birdId: string, matches: MatchRecord[]) {
-  const finished = matches.filter(
-    (match) =>
-      match.outcome !== "Pending" &&
-      (match.birdAId === birdId || match.birdBId === birdId),
-  );
-  const wins = finished.filter((match) => match.winnerId === birdId).length;
-  const draws = finished.filter((match) => match.outcome === "Draw").length;
-  const losses = finished.length - wins - draws;
-  return {
-    wins,
-    losses,
-    draws,
-    rate:
-      finished.length - draws
-        ? Math.round((wins / (finished.length - draws)) * 100)
-        : 0,
-  };
 }
 export function makeId(prefix: string) {
   return prefix + "-" + crypto.randomUUID().toUpperCase();

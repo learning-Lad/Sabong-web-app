@@ -3,6 +3,10 @@ import type {
   Bird,
   BreedingRecord,
   HealthLog,
+  Flock,
+  FlockTask,
+  FlockCheck,
+  EggCollection,
   Pen,
   Reminder,
   Supply,
@@ -10,6 +14,10 @@ import type {
 } from "./types";
 export interface FarmData {
   birds: Bird[];
+  flocks: Flock[];
+  flock_tasks: FlockTask[];
+  flock_checks: FlockCheck[];
+  egg_collections: EggCollection[];
   pens: Pen[];
   breeding: BreedingRecord[];
   health: HealthLog[];
@@ -23,6 +31,7 @@ const columns: Record<Collection, string[]> = {
     "name",
     "breed",
     "bloodline",
+    "flockId",
     "sex",
     "color",
     "hatchDate",
@@ -37,6 +46,10 @@ const columns: Record<Collection, string[]> = {
     "photoPath",
   ],
   pens: ["id", "name"],
+  flocks: ["id", "name"],
+  flock_tasks: ["id", "flockId", "name"],
+  flock_checks: ["id", "taskId", "date"],
+  egg_collections: ["id", "flockId", "date", "count", "notes"],
   breeding: [
     "id",
     "sireId",
@@ -51,6 +64,7 @@ const columns: Record<Collection, string[]> = {
   supplies: ["id", "name", "category", "quantity", "unit", "reorderLevel"],
 };
 const nullable = new Set([
+  "flockId",
   "penId",
   "sireId",
   "damId",
@@ -105,10 +119,14 @@ export async function save<T extends { id: string } & Versioned>(
 ): Promise<T> {
   const client = cloud(),
     values = payload(kind, record);
+  // Egg identity is fixed after insert. Edit only the recorded totals and notes.
+  const changes = kind === "egg_collections"
+    ? { count: values.count, notes: values.notes }
+    : values;
   const query = exists
     ? client
         .from("app_" + kind)
-        .update(values)
+        .update(changes)
         .eq("id", record.id)
         .eq("version", record.version ?? 1)
     : client.from("app_" + kind).insert(values);

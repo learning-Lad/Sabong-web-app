@@ -49,6 +49,75 @@ test("PostgreSQL migration, tenant isolation, validation, concurrency and inacti
     insert into public.app_breeding(id,"sireId","damId","matingDate","eggsCount","hatchedCount") values('PAIR','A','B','2021-01-01',6,4);
     insert into public.app_birds(id,name,breed,bloodline,sex,color,"hatchDate",status,"sireId","damId","breedingId") values('C','Chick','Chicken','A/B','Male','Grey','2021-02-01','Active','A','B','PAIR');
     insert into public.app_supplies(id,name,category,quantity,unit,"reorderLevel") values('FEED','Feed','Feed',10,'kg',3);`);
+  await db.exec("reset role");
+  await db.exec(await readFile(
+    new URL("../supabase/migrations/202611180002_poultry_flocks.sql", import.meta.url), "utf8",
+  ));
+  await identity(userA, sessionA);
+  await t.test("flock migration preserves existing bird values and isolates farm membership", async () => {
+    const before = await one(`select breed,bloodline,"flockId" from public.app_birds where id='A'`);
+    assert.deepEqual(before, { breed: "Chicken", bloodline: "A", flockId: null });
+    await db.exec(`insert into public.app_flocks(id,name) values('F1','Backyard')`);
+    await assert.rejects(
+      db.exec(`insert into public.app_flocks(id,name) values('DUP','backyard')`),
+      /app_flocks_unique_name/,
+    );
+    await db.exec(`update public.app_birds set "flockId"='F1',bloodline='' where id='A'`);
+    assert.deepEqual(
+      await one(`select bloodline,"flockId" from public.app_birds where id='A'`),
+      { bloodline: "", flockId: "F1" },
+    );
+    await identity(userB, sessionB);
+    await db.exec("select public.app_start_session();");
+    assert.equal((await one("select count(*)::int as n from public.app_flocks")).n, 0);
+    await assert.rejects(
+      db.exec(`insert into public.app_birds(id,name,breed,sex,color,"hatchDate",status,"flockId")
+        values('FOREIGN','Test','Unknown','Male','White','2022-01-01','Active','F1')`),
+      /app_birds_flock_fkey/,
+    );
+    await identity(userA, sessionA);
+  });
+  await db.exec("reset role");
+  await db.exec(await readFile(
+    new URL("../supabase/migrations/202611200003_flock_care_and_eggs.sql", import.meta.url), "utf8",
+  ));
+  await identity(userA, sessionA);
+  await t.test("daily flock checks and egg totals are private and unique", async () => {
+    await db.exec(`insert into public.app_flock_tasks(id,"flockId",name) values ('TASK','F1','Check water');
+      insert into public.app_flock_checks(id,"taskId",date) values ('CHECK','TASK','2024-05-01');
+      insert into public.app_egg_collections(id,"flockId",date,count) values ('EGG','F1','2024-05-01',0);`);
+    await assert.rejects(
+      db.exec(`insert into public.app_flock_checks(id,"taskId",date) values ('CHECK2','TASK','2024-05-01')`),
+      /duplicate key/,
+    );
+    await assert.rejects(
+      db.exec(`insert into public.app_egg_collections(id,"flockId",date,count) values ('EGG2','F1','2024-05-01',4)`),
+      /duplicate key/,
+    );
+    await assert.rejects(
+      db.exec(`update public.app_egg_collections set count=-1 where id='EGG'`),
+      /check constraint/,
+    );
+    await db.exec(`update public.app_egg_collections set count=10,notes='Morning count' where id='EGG' and version=1`);
+    assert.deepEqual(
+      await one(`select count,version from public.app_egg_collections where id='EGG'`),
+      { count: 10, version: 2 },
+    );
+    await identity(userB, sessionB);
+    for (const table of ["app_flock_tasks", "app_flock_checks", "app_egg_collections"])
+      assert.equal((await one(`select count(*)::int as n from public.${table}`)).n, 0);
+    await assert.rejects(
+      db.exec(`insert into public.app_flock_checks(id,"taskId",date) values ('OTHER','TASK','2024-05-01')`),
+      /foreign key/,
+    );
+    await assert.rejects(
+      db.exec(`insert into public.app_egg_collections(id,"flockId",date,count) values ('OTHER','F1','2024-05-01',9)`),
+      /foreign key/,
+    );
+    await identity(userA, sessionA);
+    await db.exec(`delete from public.app_flock_checks where id='CHECK' and version=1`);
+    assert.equal((await one(`select count(*)::int as n from public.app_flock_checks`)).n, 0);
+  });
   await t.test(
     "farm B cannot read/write farm A records or photos",
     async () => {

@@ -1,33 +1,35 @@
 <script lang="ts">
   import { Activity, ArrowRight, Bird, CalendarDays, CirclePlus, ClipboardPlus, HeartPulse, Package,  TriangleAlert } from '@lucide/svelte'
+  import FlockFilter from '../components/FlockFilter.svelte'
   import BirdAvatar from '../components/BirdAvatar.svelte'
   import { store } from '../lib/store.svelte'
   import type { ModalKind, Page } from '../lib/types'
-  import { age, birdName, formatDate, today } from '../lib/utils'
+  import { age, birdName, formatDate, inFlock, today } from '../lib/utils'
 
-  let { navigate, open, farmName }: { navigate: (page: Page, birdId?: string) => void; open: (kind: ModalKind) => void; farmName: string } = $props()
+  let { navigate, open, farmName, flockFilter = $bindable() }: { navigate: (page: Page, birdId?: string) => void; open: (kind: ModalKind) => void; farmName: string; flockFilter: string } = $props()
   let shortFarmName = $derived(farmName.replace(/\s+Farm$/i, ''))
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
   let activeBirds = $derived(store.birds.filter(bird => bird.status === 'Active' || bird.status === 'Brood'))
-  let lowStock = $derived(store.supplies.filter(item => item.quantity <= item.reorderLevel))
+  let recentBirds = $derived(store.birds.filter(bird => inFlock(bird, flockFilter)).slice(0, 4))
+  let lowStock = $derived(store.lowStock)
   let upcoming = $derived(store.reminders.filter(item => !item.done).sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 3))
   let dueCount = $derived(store.reminders.filter(item => !item.done && item.dueDate <= today()).length)
 </script>
 
 <div class="page-stack">
   <div class="welcome-row">
-    <div><p class="kicker">Farm overview</p><h1>{greeting}, {shortFarmName}</h1><p class="page-lead">Everything your stable needs, in one place.</p></div>
+    <div><p class="kicker">Farm overview</p><h1>{greeting}, {shortFarmName}</h1><p class="page-lead">Review your birds, care schedule, and supplies.</p></div>
     <span class="date-chip"><CalendarDays size={16} /> {formatDate(today())}</span>
   </div>
 
   <section class="stable-hero">
     <div class="hero-emblem"><img src="/sabong-mark.png" alt="" /></div>
-    <div class="hero-copy"><span>Your stable</span><h2>{activeBirds.length} birds under your care</h2><p>Keep records current and see what needs attention today.</p></div>
+    <div class="hero-copy"><span>Your farm</span><h2>{activeBirds.length} birds under your care</h2><p>Keep records current and see what needs attention today.</p></div>
     <button class="hero-add" onclick={() => open('bird')}><CirclePlus size={18} /> Register bird</button>
   </section>
 
-  <div class="section-header"><div><h2>Stable overview</h2><p>A snapshot of your farm records.</p></div></div>
+  <div class="section-header"><div><h2>Farm overview</h2><p>A snapshot of your farm records.</p></div></div>
   <div class="metric-grid">
     <div class="metric-card"><span class="metric-icon gold"><Bird size={22} /></span><strong>{activeBirds.length}</strong><span>Active birds</span><small>{store.pens.length} pens in use</small></div>
     <div class="metric-card"><span class="metric-icon gold"><HeartPulse size={22} /></span><strong>{store.health.length}</strong><span>Care records</span><small>Logged treatments and care</small></div>
@@ -47,15 +49,16 @@
 
       <section class="panel">
         <div class="section-header compact"><div><h2>Recent birds</h2><p>Quick access to the roster.</p></div><button class="text-button" onclick={() => navigate('roster')}>View all <ArrowRight size={16} /></button></div>
+        <FlockFilter bind:value={flockFilter} />
         <div class="bird-list">
-          {#each store.birds.slice(0, 4) as bird}
+          {#each recentBirds as bird}
             <button class="bird-row" onclick={() => navigate('profile', bird.id)}>
               <BirdAvatar name={bird.name} photo={bird.photo} />
-              <span class="bird-row-main"><strong>{bird.name}</strong><small>{bird.bloodline} · {age(bird.hatchDate)}</small></span>
+              <span class="bird-row-main"><strong>{bird.name}</strong><small>{bird.breed || "Unknown breed"} · {age(bird.hatchDate)}</small></span>
               <span class="row-meta"><span class="tag">{store.pens.find(pen => pen.id === bird.penId)?.name || 'Unassigned'}</span><small>{bird.status}</small></span>
               <ArrowRight size={17} class="row-arrow" />
             </button>
-          {:else}<p class="muted-note">No birds registered yet. Add your first bird above.</p>{/each}
+          {:else}<p class="muted-note">{flockFilter ? 'No birds in this view.' : 'No birds registered yet. Add your first bird above.'}</p>{/each}
         </div>
       </section>
     </div>

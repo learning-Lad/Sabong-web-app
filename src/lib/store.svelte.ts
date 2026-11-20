@@ -6,7 +6,10 @@ import type {
   Bird,
   BreedingRecord,
   HealthLog,
-  MatchRecord,
+  Flock,
+  FlockTask,
+  FlockCheck,
+  EggCollection,
   Pen,
   Reminder,
   Supply,
@@ -18,8 +21,11 @@ class FarmStore {
   health = $state<HealthLog[]>([]);
   reminders = $state<Reminder[]>([]);
   supplies = $state<Supply[]>([]);
-  // The connected app deliberately has no match storage or match actions.
-  matches = $state<MatchRecord[]>([]);
+  flocks = $state<Flock[]>([]);
+  flockTasks = $state<FlockTask[]>([]);
+  flockChecks = $state<FlockCheck[]>([]);
+  eggCollections = $state<EggCollection[]>([]);
+  lowStock = $derived(this.supplies.filter((item) => item.quantity <= item.reorderLevel));
   farmName = $state("My Farm");
   farmId = $state("");
   demo = $state(false);
@@ -46,7 +52,10 @@ class FarmStore {
     this.health = [];
     this.reminders = [];
     this.supplies = [];
-    this.matches = [];
+    this.flocks = [];
+    this.flockTasks = [];
+    this.flockChecks = [];
+    this.eggCollections = [];
     this.farmId = "";
     this.farmName = "My Farm";
     this.demo = false;
@@ -59,6 +68,12 @@ class FarmStore {
     this.demo = true;
     this.farmName = "San Isidro Farm";
     this.birds = structuredClone($state.snapshot(demoStore.birds));
+    this.flocks = structuredClone($state.snapshot(demoStore.flocks));
+    this.flockTasks = [
+      { id: "TASK-1", flockId: "F-1", name: "Check waterers" },
+      { id: "TASK-2", flockId: "F-1", name: "Check bedding" },
+    ];
+    this.eggCollections = [{ id: "EGG-1", flockId: "F-1", date: today(), count: 4, notes: "" }];
     this.pens = structuredClone($state.snapshot(demoStore.pens));
     this.breeding = structuredClone($state.snapshot(demoStore.breeding));
     this.health = structuredClone($state.snapshot(demoStore.health));
@@ -81,12 +96,17 @@ class FarmStore {
       this.farmName = farm.name;
       this.birds = records.birds.map((bird) => ({
         ...bird,
+        flockId: bird.flockId || "",
         penId: bird.penId || "",
         sireId: bird.sireId || "",
         damId: bird.damId || "",
         breedingId: bird.breedingId || "",
       }));
       this.pens = records.pens;
+      this.flocks = records.flocks;
+      this.flockTasks = records.flock_tasks;
+      this.flockChecks = records.flock_checks;
+      this.eggCollections = records.egg_collections;
       this.breeding = records.breeding;
       this.health = records.health.sort((a, b) => b.date.localeCompare(a.date));
       this.reminders = records.reminders;
@@ -139,6 +159,51 @@ class FarmStore {
     if (!this.demo) await repository.remove("birds", id, bird.version);
     this.requireWorkspace(generation);
     this.birds = this.birds.filter((item) => item.id !== id);
+  }
+  async saveFlock(name: string, id?: string) {
+    const generation = this.generation;
+    const existing = this.flocks.find((flock) => flock.id === id);
+    if (id && !existing) throw new Error("Refresh records and choose a flock.");
+    if (this.flocks.some((flock) => flock.id !== id && flock.name.toLowerCase() === name.toLowerCase()))
+      throw new Error("A flock with this name already exists.");
+    const record: Flock = existing ? { ...existing, name } : { id: makeId("F"), name };
+    const saved = this.demo ? record : await repository.save("flocks", record, !!existing);
+    this.requireWorkspace(generation);
+    this.flocks = existing
+      ? this.flocks.map((flock) => flock.id === saved.id ? saved : flock)
+      : [...this.flocks, saved];
+    return saved;
+  }
+  async addFlockTask(flockId: string, name: string) {
+    const generation = this.generation;
+    if (this.flockTasks.some((task) => task.flockId === flockId && task.name.toLowerCase() === name.toLowerCase()))
+      throw new Error("This flock already has a task with that name.");
+    const task: FlockTask = { id: makeId("TASK"), flockId, name };
+    const saved = this.demo ? task : await repository.save("flock_tasks", task);
+    this.requireWorkspace(generation);
+    this.flockTasks = [...this.flockTasks, saved];
+  }
+  async toggleFlockTask(taskId: string, date: string) {
+    const generation = this.generation;
+    const existing = this.flockChecks.find((entry) => entry.taskId === taskId && entry.date === date);
+    if (existing) {
+      if (!this.demo) await repository.remove("flock_checks", existing.id, existing.version);
+      this.requireWorkspace(generation);
+      this.flockChecks = this.flockChecks.filter((entry) => entry.id !== existing.id);
+      return;
+    }
+    const entry: FlockCheck = { id: makeId("CHECK"), taskId, date };
+    const saved = this.demo ? entry : await repository.save("flock_checks", entry);
+    this.requireWorkspace(generation);
+    this.flockChecks = [...this.flockChecks, saved];
+  }
+  async saveEggCollection(entry: EggCollection, editing: boolean) {
+    const generation = this.generation;
+    const saved = this.demo ? entry : await repository.save("egg_collections", entry, editing);
+    this.requireWorkspace(generation);
+    this.eggCollections = editing
+      ? this.eggCollections.map((item) => item.id === saved.id ? saved : item)
+      : [...this.eggCollections, saved];
   }
   async addPen(name: string) {
     const generation = this.generation;
@@ -224,17 +289,6 @@ class FarmStore {
       item.id === id ? saved : item,
     );
   }
-  // Legacy demo screen methods remain inert; they are not exposed by the connected UI.
-  addMatch(_match: MatchRecord) {
-    throw new Error("This module is outside the farm-records app.");
-  }
-  setMatchOutcome(
-    _id: string,
-    _outcome: MatchRecord["outcome"],
-    _winnerId: string,
-  ) {
-    throw new Error("This module is outside the farm-records app.");
-  }
   createBirdId() {
     return makeId("B");
   }
@@ -242,7 +296,8 @@ class FarmStore {
     return {
       id: this.createBirdId(),
       name: "",
-      breed: "Chicken",
+      breed: "Unknown",
+      flockId: "",
       bloodline: "",
       sex: "Male",
       color: "",

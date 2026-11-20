@@ -27,6 +27,10 @@ async function mockCloud(page: Page) {
   const rows: Record<string, any[]> = {
     birds: [],
     pens: [],
+    flocks: [],
+    flock_tasks: [],
+    flock_checks: [],
+    egg_collections: [],
     breeding: [],
     health: [],
     reminders: [],
@@ -163,7 +167,7 @@ async function createBird(page: Page, name = "Test bird") {
     .getByRole("button", { name: "Register bird", exact: true })
     .click();
   await page.getByLabel("Bird name").fill(name);
-  await page.getByLabel("Bloodline").selectOption("Kelso");
+  await page.getByRole("combobox", { name: "Breed *", exact: true }).selectOption("Mixed / Crossbreed");
   await page.getByLabel("Color / markings").fill("White");
   await page.getByLabel("Hatch date").fill("2025-01-01");
   await page.getByRole("button", { name: "Save bird", exact: true }).click();
@@ -186,6 +190,7 @@ test("cloud bird records persist on reload; edit, unassign pen and validation wo
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await createBird(page);
   expect(backend.rows.birds).toHaveLength(1);
+  expect(backend.rows.birds[0]).toMatchObject({ breed: "Mixed / Crossbreed", bloodline: "", flockId: null });
   await page.getByRole("button", { name: "Edit profile" }).click();
   await page.getByRole("button", { name: "Add a new pen" }).click();
   await page.getByLabel("Pen name").fill("New pen");
@@ -211,6 +216,42 @@ test("cloud bird records persist on reload; edit, unassign pen and validation wo
   expect(backend.rows.birds[0].penId).toBe(null);
   expect(errors).toEqual([]);
 });
+test("flocks and custom breed records survive reload and filter the dashboard and directory", async ({ page }) => {
+  const { rows } = await mockCloud(page);
+  rows.birds.push({
+    id: "LEGACY", name: "Legacy bird", breed: "Gamefowl", bloodline: "Sweater × Kelso",
+    sex: "Male", color: "Brown", hatchDate: "2024-01-01", status: "Active", weight: 1,
+    version: 1,
+  });
+  await login(page);
+  await nav(page, "Bird directory");
+  await page.getByRole("button", { name: "Add flock", exact: true }).click();
+  await page.getByLabel("Flock name").fill("Backyard");
+  await page.getByRole("button", { name: "Save flock" }).click();
+  await expect(page.getByLabel("Filter by flock")).toHaveValue(/^F-/);
+  await expect(page.getByRole("heading", { name: "Legacy bird" })).toHaveCount(0);
+  await page.getByLabel("Filter by flock").selectOption({ label: "Unassigned birds" });
+  await page.getByRole("button", { name: /Legacy bird/ }).click();
+  await page.getByRole("button", { name: "Edit profile" }).click();
+  await expect(page.getByRole("textbox", { name: "Custom breed *", exact: true })).toHaveValue("Gamefowl");
+  await expect(page.getByLabel("Strain or bloodline")).toHaveValue("Sweater × Kelso");
+  await page.getByRole("combobox", { name: "Flock (optional)", exact: true }).selectOption({ label: "Backyard" });
+  await page.getByRole("button", { name: "Save bird", exact: true }).click();
+  await expect(page.getByText("Backyard", { exact: true })).toBeVisible();
+  expect(rows.birds[0]).toMatchObject({ breed: "Gamefowl", bloodline: "Sweater × Kelso", flockId: rows.flocks[0].id });
+  await page.reload();
+  await expect(page.getByText("Cloud connected")).toBeVisible();
+  await page.getByLabel("Filter by flock").selectOption({ label: "Backyard" });
+  await expect(page.getByRole("button", { name: /Legacy bird/ })).toBeVisible();
+  await page.getByRole("button", { name: /View all/ }).click();
+  await expect(page.getByLabel("Filter by flock")).toHaveValue(rows.flocks[0].id);
+  await page.getByRole("button", { name: "Rename flock" }).click();
+  await page.getByLabel("Flock name").fill("Home flock");
+  await page.getByRole("button", { name: "Save flock" }).click();
+  await expect(page.getByRole("button", { name: /Legacy bird.*Home flock/ })).toBeVisible();
+  expect(rows.flocks[0].name).toBe("Home flock");
+});
+
 test("care stock deductions, reminders, reports and AI failure keep manual records available", async ({
   page,
 }) => {
@@ -262,6 +303,78 @@ test("care stock deductions, reminders, reports and AI failure keep manual recor
   await nav(page, "Care & schedule");
   await expect(page.getByText("Routine care recorded")).toBeVisible();
 });
+test("flock checklist and egg counts save, reload, and stay scoped to the chosen flock", async ({ page }) => {
+  const { rows } = await mockCloud(page);
+  rows.flocks.push({ id: "F1", name: "Layers" }, { id: "F2", name: "Backyard" });
+  await login(page);
+  await nav(page, "Flock records");
+  await page.getByRole("combobox", { name: "Flock", exact: true }).selectOption("F1");
+  await page.getByRole("button", { name: "Add task" }).click();
+  await page.getByRole("textbox", { name: /Task name/ }).fill("Check water");
+  await page.getByRole("button", { name: "Save task" }).click();
+  const task = page.getByRole("button", { name: "Check water completed today" });
+  await task.click();
+  await expect(task).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Log eggs" }).click();
+  await page.getByRole("spinbutton", { name: /Eggs collected/ }).fill("0");
+  await page.getByRole("button", { name: "Save collection" }).click();
+  await expect(page.getByRole("button", { name: "Edit count" })).toBeVisible();
+  await page.getByRole("button", { name: "Edit count" }).click();
+  await page.getByRole("spinbutton", { name: /Eggs collected/ }).fill("7");
+  await page.getByRole("textbox", { name: "Notes (optional)" }).fill("Morning round");
+  await page.getByRole("button", { name: "Save collection" }).click();
+  await expect(page.getByText("7 eggs recorded in the last 7 days")).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("Cloud connected")).toBeVisible();
+  await nav(page, "Flock records");
+  await expect(task).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText("Morning round")).toBeVisible();
+  await task.click();
+  await expect(task).toHaveAttribute("aria-pressed", "false");
+  await page.getByRole("combobox", { name: "Flock", exact: true }).selectOption("F2");
+  await expect(task).toHaveCount(0);
+  await expect(page.getByText("0 eggs recorded in the last 7 days")).toBeVisible();
+  expect(rows.egg_collections).toHaveLength(1);
+  expect(rows.egg_collections[0]).toMatchObject({ flockId: "F1", count: 7 });
+});
+
+test("bird care printing includes all individual records and excludes unrelated care", async ({ page }) => {
+  await page.addInitScript(() => { window.print = () => document.body.setAttribute("data-print-invoked", "yes"); });
+  const { rows } = await mockCloud(page);
+  await login(page);
+  await createBird(page, "Print bird");
+  for (let i = 1; i <= 4; i++) rows.health.push({
+    id: "H" + i, targetType: "bird", targetId: rows.birds[0].id, category: "Routine care",
+    date: "2025-02-0" + i, notes: "Care note " + i,
+  });
+  rows.health.push({ id: "H5", targetType: "pen", targetId: "P1", category: "Routine care", date: "2025-02-05", notes: "Pen-only note" });
+  await page.getByRole("button", { name: "Refresh records" }).click();
+  await expect(page.getByText("Care note 4").filter({ visible: true })).toBeVisible();
+  await page.getByRole("button", { name: "Print care history" }).click();
+  await expect(page.locator("body")).toHaveAttribute("data-print-invoked", "yes");
+  await page.emulateMedia({ media: "print" });
+  await expect(page.getByRole("heading", { name: "Care history for Print bird" })).toBeVisible();
+  await expect(page.getByRole("row")).toHaveCount(5);
+  await expect(page.getByRole("row", { name: /Pen-only note/ })).toHaveCount(0);
+});
+
+test("notification bell counts low stock and links to the inventory", async ({ page }) => {
+  const { rows } = await mockCloud(page);
+  rows.supplies.push({ id: "FEED", name: "Feed", quantity: 2, reorderLevel: 2, unit: "kg", category: "Feed", version: 1 });
+  rows.reminders.push({ id: "CARE", birdId: "UNKNOWN", description: "Care reminder", dueDate: "2025-02-01", done: false });
+  await login(page);
+  const bell = page.getByLabel("Notifications (2)");
+  await expect(bell.locator(".notification-count")).toHaveText("2");
+  await bell.click();
+  await expect(page.getByRole("button", { name: "1 open care reminder" })).toBeVisible();
+  await page.getByRole("button", { name: "1 item needs restocking" }).click();
+  await expect(page.getByRole("heading", { name: "Feed" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "1 item needs restocking" })).not.toBeVisible();
+  rows.supplies[0].quantity = 6;
+  await page.getByRole("button", { name: "Refresh records" }).click();
+  await expect(page.getByLabel("Notifications (1)").locator(".notification-count")).toHaveText("1");
+});
+
 test("registration and recovery contact the auth service and show honest confirmation", async ({
   page,
 }) => {
