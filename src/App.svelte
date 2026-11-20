@@ -296,6 +296,19 @@
     loadingPhoto = false;
     photoCrop = null;
   }
+  async function returnFromPen(penId?: string) {
+    const previous = pendingBirdDraft;
+    const crop = pendingPhoto;
+    closeModal();
+    if (!previous) return;
+    await open("bird", penId ? { ...previous, penId } : previous);
+    photoCrop = crop;
+  }
+  function dismissModal() {
+    if (saving) return;
+    if (modalKind === "pen" && pendingBirdDraft) void returnFromPen();
+    else closeModal();
+  }
   async function submitModal(event: SubmitEvent) {
     event.preventDefault();
     if (!modalKind || saving || loadingPhoto) return;
@@ -495,18 +508,10 @@
         closeModal();
         notify(editing ? "Flock renamed" : "Flock added");
       } else if (kind === "pen") {
-        const pen = await store.addPen(draft.name!.trim()),
-          previous = pendingBirdDraft,
-          crop = pendingPhoto;
-        pendingBirdDraft = null;
-        pendingPhoto = null;
+        const pen = await store.addPen(draft.name!.trim());
         saving = false;
-        closeModal();
+        await returnFromPen(pen.id);
         notify("Pen added");
-        if (previous) {
-          await open("bird", { ...previous, penId: pen.id });
-          photoCrop = crop;
-        }
       }
     } catch (error) {
       if (uploadedPath) await removePhoto(uploadedPath).catch(() => {});
@@ -707,7 +712,7 @@
   bind:this={modalElement}
   oncancel={(event) => {
     event.preventDefault();
-    closeModal();
+    dismissModal();
   }}
 >
   {#if modalKind}
@@ -723,7 +728,7 @@
         </h2>
         <p>{modalLabels[modalKind].description}</p>
       </div>
-      <button class="icon-button" aria-label="Close form" onclick={closeModal}
+      <button class="icon-button" aria-label="Close form" onclick={dismissModal}
         ><X size={20} /></button
       >
     </div>
@@ -1175,7 +1180,7 @@
           type="button"
           class="secondary-button"
           disabled={saving}
-          onclick={closeModal}>Cancel</button
+          onclick={dismissModal}>Cancel</button
         ><button type="submit" class="primary-button" disabled={saving || loadingPhoto}
           >{saving ? "Saving…" : modalLabels[modalKind].action}
           <ArrowRight size={17} /></button
