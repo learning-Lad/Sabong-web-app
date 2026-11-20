@@ -185,6 +185,13 @@ test("cloud bird records persist on reload; edit, unassign pen and validation wo
   await page
     .getByRole("button", { name: "Register bird", exact: true })
     .click();
+  await page.getByLabel("Bird name").fill("Keep this draft");
+  const dialog = page.getByRole("dialog");
+  const bounds = await dialog.boundingBox();
+  expect(bounds?.x).toBeGreaterThan(10);
+  await page.mouse.click(5, 5);
+  await expect(dialog).toBeVisible();
+  await expect(page.getByLabel("Bird name")).toHaveValue("Keep this draft");
   await page.getByRole("button", { name: "Save bird", exact: true }).click();
   await expect(page.locator('[aria-invalid="true"]').first()).toBeVisible();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -489,19 +496,52 @@ test("private photo upload survives profile reload without a public URL", async 
   await login(page);
   await createBird(page, "Photo bird");
   await page.getByRole("button", { name: "Edit profile" }).click();
-  await page
-    .locator('dialog input[type="file"]')
-    .first()
-    .setInputFiles({
-      name: "bird.png",
-      mimeType: "image/png",
-      buffer: Buffer.from(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ1EAAAAASUVORK5CYII=",
-        "base64",
-      ),
-    });
+  const sample = await page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 300;
+    canvas.height = 150;
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "red";
+    ctx.fillRect(0, 0, 150, 150);
+    ctx.fillStyle = "blue";
+    ctx.fillRect(150, 0, 150, 150);
+    return canvas.toDataURL("image/png").split(",")[1];
+  });
+  const input = page.locator('dialog input[type="file"]').first();
+  const crop = page.getByRole("region", { name: "Crop bird photo" });
+  await input.setInputFiles({ name: "bird.png", mimeType: "image/png", buffer: Buffer.from(sample, "base64") });
+  await expect(crop).toBeVisible();
+  await page.getByRole("button", { name: "Discard selected photo" }).click();
+  await expect(crop).toHaveCount(0);
+  await input.setInputFiles({ name: "bird.png", mimeType: "image/png", buffer: Buffer.from(sample, "base64") });
+  await expect(crop).toBeVisible();
+  await page.getByRole("slider", { name: "Zoom" }).press("End");
+  const horizontal = page.getByRole("slider", { name: "Horizontal position" });
+  const frame = page.locator(".photo-crop-frame");
+  await frame.scrollIntoViewIfNeeded();
+  const box = (await frame.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 4, box.y + box.height / 2, { steps: 3 });
+  await page.mouse.up();
+  await expect(horizontal).toHaveValue(/^-\d+/);
+  await horizontal.press("Home");
+  await page.getByRole("button", { name: "Add a new pen" }).click();
+  await page.getByLabel("Pen name").fill("Crop pen");
+  await page.getByRole("button", { name: "Add pen", exact: true }).click();
+  await expect(horizontal).toHaveValue("-100");
   await page.getByRole("button", { name: "Save bird", exact: true }).click();
-  await expect(page.locator(".profile-hero img")).toBeVisible();
+  const savedPhoto = page.locator(".profile-hero img");
+  await expect(savedPhoto).toBeVisible();
+  await expect.poll(() => savedPhoto.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(50);
+  const pixel = await savedPhoto.evaluate((el: HTMLImageElement) => {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(el, 0, 0);
+    return Array.from(ctx.getImageData(25, 25, 1, 1).data);
+  });
+  expect(pixel[2]).toBeGreaterThan(240);
+  expect(pixel[0]).toBeLessThan(15);
   expect(backend.rows.birds[0].photoPath).toMatch(
     new RegExp("^" + farmId + "/"),
   );

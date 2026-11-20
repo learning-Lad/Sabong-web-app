@@ -87,3 +87,14 @@ button:disabled{cursor:wait;opacity:.55}
 .checklist-link{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px}
 .checklist-link h2{font-size:1.1rem}
 .checklist-link p{margin:5px 0 0;color:var(--muted);font-size:.84rem}
+
+.photo-crop{display:grid;gap:12px;padding:14px;border:1px solid var(--border);border-radius:10px;background:#1a1a1a}
+.photo-crop h3{margin:0;font-size:1rem}
+.photo-crop p{margin:4px 0 0;color:var(--muted);font-size:.82rem}
+.photo-crop-frame{width:min(100%,240px);aspect-ratio:1;justify-self:center;position:relative;overflow:hidden;border-radius:8px;outline:2px solid var(--gold);outline-offset:2px;cursor:grab;touch-action:none;user-select:none;background:#101010}
+.photo-crop-frame:active{cursor:grabbing}
+.photo-crop-frame img{position:absolute;max-width:none;transform:translate(-50%,-50%);pointer-events:none}
+.photo-crop-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,130px),1fr));gap:10px}
+.photo-crop-controls label{display:grid;gap:6px;color:var(--text);font-size:.8rem}
+.photo-crop-controls input{width:100%;accent-color:var(--gold)}
+.photo-crop>.text-button{justify-self:start}

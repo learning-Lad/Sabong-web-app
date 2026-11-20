@@ -16,6 +16,7 @@
     RefreshCw,
     X,
   } from "@lucide/svelte";
+  import PhotoCropEditor from "./components/PhotoCropEditor.svelte";
   import Auth from "./screens/Auth.svelte";
   import Dashboard from "./screens/Dashboard.svelte";
   import Roster from "./screens/Roster.svelte";
@@ -31,6 +32,7 @@
   import { auth } from "./lib/auth.svelte";
   import { readableError } from "./lib/supabase";
   import { uploadPhoto, removePhoto } from "./lib/repository";
+  import { loadPhotoCrop, savePhotoCrop, type PhotoCrop } from "./lib/photo-crop";
   import { validateBird, validDate, numberError } from "./lib/validation";
   import type { Bird as BirdRecord, ModalKind, Page } from "./lib/types";
   import { BREEDS, CUSTOM_BREED, age, formatDate, makeId, today } from "./lib/utils";
@@ -44,9 +46,11 @@
     errors = $state<Record<string, string>>({});
   let toast = $state(""),
     saving = $state(false),
-    photoFile = $state<File | null>(null);
+    photoCrop = $state<PhotoCrop | null>(null);
+  let loadingPhoto = $state(false);
+  let photoSelection = 0;
   let pendingBirdDraft = $state<Record<string, string> | null>(null);
-  let pendingPhoto: File | null = null;
+  let pendingPhoto: PhotoCrop | null = null;
   let modalElement: HTMLDialogElement;
   let notifications = $state<HTMLDetailsElement>();
   let toastTimer: ReturnType<typeof setTimeout>;
@@ -176,7 +180,9 @@
   async function open(kind: ModalKind, values: Record<string, string> = {}) {
     errors = {};
     modalKind = kind;
-    photoFile = null;
+    photoSelection++;
+    loadingPhoto = false;
+    photoCrop = null;
     if (kind === "bird") {
       const bird = values.id
           ? store.birds.find((item) => item.id === values.id)
@@ -286,11 +292,13 @@
     modalKind = null;
     draft = {};
     errors = {};
-    photoFile = null;
+    photoSelection++;
+    loadingPhoto = false;
+    photoCrop = null;
   }
   async function submitModal(event: SubmitEvent) {
     event.preventDefault();
-    if (!modalKind || saving) return;
+    if (!modalKind || saving || loadingPhoto) return;
     const kind = modalKind,
       next: Record<string, string> = {};
     const required = (key: string, message: string) => {
@@ -382,9 +390,13 @@
       if (kind === "bird" && bird) {
         const exists = store.birds.some((item) => item.id === bird!.id),
           oldPath = bird.photoPath;
-        if (photoFile && !store.demo) {
-          uploadedPath = await uploadPhoto(store.farmId, bird.id, photoFile);
-          bird.photoPath = uploadedPath;
+        if (photoCrop) {
+          const { file, preview } = await savePhotoCrop(photoCrop);
+          bird.photo = preview;
+          if (!store.demo) {
+            uploadedPath = await uploadPhoto(store.farmId, bird.id, file);
+            bird.photoPath = uploadedPath;
+          }
         }
         if (exists) await store.updateBird(bird);
         else await store.addBird(bird);
@@ -485,7 +497,7 @@
       } else if (kind === "pen") {
         const pen = await store.addPen(draft.name!.trim()),
           previous = pendingBirdDraft,
-          file = pendingPhoto;
+          crop = pendingPhoto;
         pendingBirdDraft = null;
         pendingPhoto = null;
         saving = false;
@@ -493,7 +505,7 @@
         notify("Pen added");
         if (previous) {
           await open("bird", { ...previous, penId: pen.id });
-          photoFile = file;
+          photoCrop = crop;
         }
       }
     } catch (error) {
@@ -503,23 +515,30 @@
       saving = false;
     }
   }
-  function handlePhoto(event: Event) {
-    const file = (event.currentTarget as HTMLInputElement).files?.[0];
+  async function handlePhoto(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
     if (!file) return;
+    const selection = ++photoSelection;
     if (
       !["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
       file.size > 5 * 1024 * 1024
     ) {
-      errors = { photo: "Choose a JPG, PNG, or WebP photo up to 5 MB." };
+      loadingPhoto = false;
+      errors.photo = "Choose a JPG, PNG, or WebP photo up to 5 MB.";
       return;
     }
-    photoFile = file;
-    const reader = new FileReader();
-    reader.onload = () => {
-      draft.photo = String(reader.result || "");
-      errors = {};
-    };
-    reader.readAsDataURL(file);
+    loadingPhoto = true;
+    delete errors.photo;
+    try {
+      const loaded = await loadPhotoCrop(file);
+      if (selection === photoSelection) photoCrop = loaded;
+    } catch {
+      if (selection === photoSelection) errors.photo = "This photo could not be opened. Choose another image.";
+    } finally {
+      if (selection === photoSelection) loadingPhoto = false;
+    }
   }
 </script>
 
@@ -686,14 +705,9 @@
 <dialog
   class="form-dialog"
   bind:this={modalElement}
-  onclose={() => {
-    if (!modalElement.open && !saving) modalKind = null;
-  }}
   oncancel={(event) => {
-    if (saving) event.preventDefault();
-  }}
-  onclick={(event) => {
-    if (event.target === modalElement) closeModal();
+    event.preventDefault();
+    closeModal();
   }}
 >
   {#if modalKind}
@@ -726,12 +740,12 @@
                   alt="Selected bird"
                 />{:else}<Bird size={28} />{/if}</span
             ><span
-              >{draft.photo ? "Change photo" : "Add bird photo"}<small
+              >{draft.photo || photoCrop ? "Change photo" : "Add bird photo"}<small
                 >Choose a photo or use your camera</small
               ></span
             ><input
               type="file"
-              accept="image/*"
+              accept="image/jpeg,image/png,image/webp"
               onchange={handlePhoto}
             /></label
           >{#if errors.photo}<p class="field-error" role="alert">
@@ -747,6 +761,8 @@
               onchange={handlePhoto}
             />
           </label>
+          {#if loadingPhoto}<p class="muted-note" role="status">Opening photo…</p>{/if}
+          {#if photoCrop}<PhotoCropEditor bind:crop={photoCrop} discard={() => { photoCrop = null; }} />{/if}
           <div class="form-grid">
             <label class="field"
               ><span>Bird name <b>*</b></span><input
@@ -831,9 +847,10 @@
           <button
             type="button"
             class="inline-link"
+            disabled={loadingPhoto}
             onclick={() => {
               pendingBirdDraft = { ...draft };
-              pendingPhoto = photoFile;
+              pendingPhoto = photoCrop;
               closeModal();
               open("pen");
             }}>Add a new pen</button
@@ -1159,7 +1176,7 @@
           class="secondary-button"
           disabled={saving}
           onclick={closeModal}>Cancel</button
-        ><button type="submit" class="primary-button" disabled={saving}
+        ><button type="submit" class="primary-button" disabled={saving || loadingPhoto}
           >{saving ? "Saving…" : modalLabels[modalKind].action}
           <ArrowRight size={17} /></button
         >
