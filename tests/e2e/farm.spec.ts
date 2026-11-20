@@ -570,3 +570,138 @@ test("the local API bridge returns real HTTP method and authentication responses
   expect(post.status()).toBe(401);
   expect((await post.json()).error).toContain("Sign in");
 });
+
+test("pairing records validate hatch counts, preserve edits and link a chick to its parents", async ({ page }) => {
+  const { rows } = await mockCloud(page);
+  for (const [id, name, sex] of [["SIRE", "Oak", "Male"], ["DAM", "Fern", "Female"]]) {
+    rows.birds.push({ id, name, sex, breed: "Unknown", bloodline: "", color: "Brown",
+      hatchDate: "2024-02-01", weight: 1, status: "Active", version: 1 });
+  }
+  await login(page);
+  await nav(page, "Breeding & lineage");
+  await page.getByRole("button", { name: "Record pairing" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Mating date").fill("2025-02-01");
+  await dialog.getByRole("spinbutton", { name: /^Eggs set/ }).fill("8");
+  await dialog.getByRole("spinbutton", { name: /^Chicks hatched/ }).fill("9");
+  await dialog.getByRole("button", { name: "Save pairing" }).click();
+  await expect(dialog.getByRole("spinbutton", { name: /^Chicks hatched/ })).toHaveAttribute("aria-invalid", "true");
+  await dialog.getByRole("spinbutton", { name: /^Chicks hatched/ }).fill("3");
+  await dialog.getByRole("button", { name: "Save pairing" }).click();
+  const pairing = page.locator(".record-card").filter({ hasText: "Oak" });
+  await expect(pairing.getByText("38%")).toBeVisible();
+  await pairing.getByRole("button", { name: "Update hatch result" }).click();
+  await dialog.getByRole("spinbutton", { name: /^Chicks hatched/ }).fill("4");
+  await dialog.getByRole("button", { name: "Save pairing" }).click();
+  await expect(pairing.getByText("50%")).toBeVisible();
+  await pairing.getByRole("button", { name: "Link a new chick" }).click();
+  await dialog.getByLabel("Bird name").fill("Seedling");
+  await dialog.getByLabel("Color / markings").fill("Brown");
+  await dialog.getByLabel("Hatch date").fill("2025-03-01");
+  await dialog.getByRole("button", { name: "Save bird", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Seedling" })).toBeVisible();
+  expect(rows.birds.find((bird) => bird.name === "Seedling")).toMatchObject({
+    sireId: "SIRE", damId: "DAM", breedingId: rows.breeding[0].id,
+  });
+  await page.reload();
+  await expect(page.getByText("Cloud connected")).toBeVisible();
+  await nav(page, "Breeding & lineage");
+  await expect(pairing.getByText("1 registered offspring linked")).toBeVisible();
+  await page.locator("select").selectOption({ label: `Seedling · ${rows.birds.find((bird) => bird.name === "Seedling").id}` });
+  const pedigree = page.locator(".pedigree-root");
+  await expect(pedigree.getByRole("button", { name: "Fern" })).toBeVisible();
+  await pedigree.getByRole("button", { name: "Oak" }).click();
+  await expect(page.getByRole("heading", { name: "Oak" })).toBeVisible();
+});
+
+test("pen care, direct stock adjustments and dated report exports work together", async ({ page }) => {
+  const { rows } = await mockCloud(page);
+  rows.pens.push({ id: "P1", name: "North pen" });
+  rows.supplies.push({ id: "FEED", name: "Pellets", quantity: 4, reorderLevel: 2, unit: "kg", category: "Feed", version: 1 });
+  await login(page);
+  await nav(page, "Supply tracker");
+  await page.getByRole("button", { name: "Medicine", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "No supplies in this category" })).toBeVisible();
+  await page.getByRole("button", { name: "Feed", exact: true }).click();
+  const amount = page.getByRole("spinbutton", { name: "Adjustment amount (kg)" });
+  await amount.fill("5");
+  await page.getByRole("button", { name: "Deduct stock of Pellets" }).click();
+  await expect(page.getByText(/within the available balance/)).toBeVisible();
+  expect(rows.supplies[0].quantity).toBe(4);
+  await amount.fill("2.5");
+  await page.getByRole("button", { name: "Deduct stock of Pellets" }).click();
+  await expect(page.locator(".warning-banner")).toContainText("1 item needs restocking");
+  await page.getByRole("button", { name: "Restock Pellets", exact: true }).click();
+  await expect(page.getByText("In stock", { exact: true })).toBeVisible();
+  expect(rows.supplies[0].quantity).toBe(4);
+  await nav(page, "Care & schedule");
+  await page.getByRole("button", { name: "Log care", exact: true }).click();
+  await page.getByRole("combobox", { name: "Apply to" }).selectOption("pen");
+  await page.getByRole("combobox", { name: "Care type" }).selectOption("Routine care");
+  await page.getByLabel("Date", { exact: true }).fill("2025-02-01");
+  await page.getByRole("textbox", { name: /^Notes/ }).fill("Pen waterer rinsed");
+  await page.getByRole("button", { name: "Save care log", exact: true }).click();
+  await expect(page.getByText("North pen", { exact: true })).toBeVisible();
+  expect(rows.health[0]).toMatchObject({ targetType: "pen", targetId: "P1" });
+  await nav(page, "Reports");
+  await page.getByRole("button", { name: "Health", exact: true }).click();
+  await page.getByLabel("From date (care)").fill("2025-02-02");
+  await expect(page.getByRole("row", { name: /Pen waterer rinsed/ })).toHaveCount(0);
+  await page.getByLabel("From date (care)").fill("2025-02-01");
+  await expect(page.getByRole("row", { name: /Pen waterer rinsed/ })).toBeVisible();
+  const file = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download CSV" }).click();
+  const contents = await (await file).createReadStream();
+  let csv = "";
+  for await (const chunk of contents!) csv += String(chunk);
+  expect(csv).toContain("Pen waterer rinsed");
+});
+
+test("care assistant requires consent, shows a response and leaves manual records untouched", async ({ page }) => {
+  const { rows } = await mockCloud(page);
+  let sent: Record<string, unknown> | undefined;
+  await page.route("**/api/farm-assistant", (route) => {
+    sent = route.request().postDataJSON();
+    return route.fulfill({ json: { advice: "Log when you changed the bedding." } });
+  });
+  await login(page);
+  await nav(page, "Care assistant");
+  await page.getByLabel("Your observations").fill("We replaced the coop bedding.");
+  await page.getByRole("button", { name: "Review observations", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("consent");
+  expect(sent).toBeUndefined();
+  await page.getByRole("checkbox").check();
+  await page.getByRole("button", { name: "Review observations", exact: true }).click();
+  await expect(page.getByText("Log when you changed the bedding.")).toBeVisible();
+  await expect(page.getByRole("checkbox")).not.toBeChecked();
+  expect(sent).toMatchObject({ observations: "We replaced the coop bedding.", consent: true });
+  expect(rows.health).toHaveLength(0);
+});
+
+test("canceling pen creation keeps the in-progress bird registration", async ({ page }) => {
+  await mockCloud(page);
+  await login(page);
+  await nav(page, "Bird directory");
+  await page.getByRole("button", { name: "Register bird", exact: true }).click();
+  await page.getByLabel("Bird name").fill("Unfinished profile");
+  await page.getByRole("button", { name: "Add a new pen" }).click();
+  await page.getByLabel("Pen name").fill("Unfinished pen");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("dialog")).toBeVisible({ timeout: 3000 });
+  await expect(page.getByLabel("Bird name")).toHaveValue("Unfinished profile");
+});
+
+
+test("a disposable bird can be deleted only after confirmation", async ({ page }) => {
+  const { rows } = await mockCloud(page);
+  await login(page);
+  await createBird(page, "Temporary QA bird");
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.getByRole("button", { name: "Delete bird" }).click();
+  await expect(page.getByRole("heading", { name: "Temporary QA bird" })).toBeVisible();
+  expect(rows.birds).toHaveLength(1);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Delete bird" }).click();
+  await expect(page.getByRole("heading", { name: "Your birds" })).toBeVisible();
+  expect(rows.birds).toHaveLength(0);
+});
